@@ -55,7 +55,7 @@ git clone https://github.com/HansBug/strict-agent-loop /path/to/strict-agent-loo
 调用时写明 skill 路径：
 
 ```text
-Use $strict-agent-loop at /path/to/strict-agent-loop to ...
+请使用位于 /path/to/strict-agent-loop 的 $strict-agent-loop 来帮助处理这个任务。
 ```
 
 ## 调用方式
@@ -65,17 +65,20 @@ Use $strict-agent-loop at /path/to/strict-agent-loop to ...
 示例：
 
 ```text
-Use $strict-agent-loop to refactor this repository in strict atomic steps.
-Before each round, tell me the exact task, the local done condition, and the global stop condition.
-Create and maintain .codex-loop/state.json in the repo root.
-Keep using one persistent executor agent and stop only when pytest passes, lint passes, and the requested refactor is complete.
+请使用 $strict-agent-loop 以严格原子步骤重构这个仓库。
+每一轮开始前，先告诉我这一轮的精确任务、这一轮的完成条件，以及全局停止条件。
+请在仓库根目录创建并持续维护 .codex-loop/state.json。
+请始终复用同一个持久执行代理。
+只有当 pytest 通过、lint 通过，并且本次要求的重构完成时，才允许停止。
 ```
 
 显式路径调用示例：
 
 ```text
-Use $strict-agent-loop at /abs/path/to/strict-agent-loop to fix the bug in this repo.
-Do one atomic task per round, inherit the current context into the first executor agent, and keep looping until the failing test is fixed and a regression test is added.
+请使用位于 /abs/path/to/strict-agent-loop 的 $strict-agent-loop 来修复这个仓库里的 bug。
+每一轮只做一个原子任务。
+第一次创建执行代理时，请继承当前上下文。
+在失败用例修复完成并补上一条回归测试之前，不要停止循环。
 ```
 
 ## 辅助脚本
@@ -131,6 +134,25 @@ python scripts/compact_state.py --state /abs/path/to/repo/.codex-loop/state.json
 ## 限制
 
 这个 skill 提供的是更严格的执行协议，而不是新的 runtime。它可以显著减少偷懒和中间步骤压缩，但不能保证数学意义上的“真正无限循环”，因为实际执行仍然受 Codex 会话时长、工具可用性和上下文长度限制。
+
+## 面对实际限制时的建议
+
+为了让这套循环在真实会话里更稳，建议这样使用：
+
+- 把全局停止条件写得具体且可复验。最好的停止条件是 `pytest 通过`、`某个文件完成更新`、`补上一条回归测试` 这种可以直接检查的条件。
+- 把每一轮控制得足够小，保证一轮之内就能完成验证。如果一轮听起来像一个里程碑，那它通常还是太大了。
+- 把状态文件写进目标仓库，而不是临时目录。这样即使会话中断，也能低成本恢复。
+- 每隔几轮，或者在出现较大 diff 之后，主动运行一次 `compact_state.py`，避免上下文过长导致恢复成本上升。
+- 事先约定什么算真正的 blocker，什么算工具缺失。如果某个关键工具不可用，要把它明确记进状态，而不是让循环悄悄失真。
+- 优先选择控制器可以直接重跑的成功证据，比如 `pytest -q`、`npm test`、`ruff check`，或者对关键文件的简短 diff 检查。
+- 如果任务本身很大，建议一开始就明确 `max_iterations` 和 `max_no_progress_rounds`，让循环在退化时能够显式失败，而不是拖着变形。
+
+如果你预计会跑很长一轮任务，一个比较稳妥的默认做法是：
+
+- 把 `.codex-loop/state.json` 放在仓库根目录
+- 每完成 5 到 10 轮已验证步骤，就压缩一次状态
+- 每个活动任务只保留一个执行代理
+- 一旦记忆和真实仓库状态不一致，以磁盘状态为准
 
 ## 本地验证
 

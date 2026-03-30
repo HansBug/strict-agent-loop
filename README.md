@@ -57,7 +57,7 @@ git clone https://github.com/HansBug/strict-agent-loop /path/to/strict-agent-loo
 Invoke it with an explicit path:
 
 ```text
-Use $strict-agent-loop at /path/to/strict-agent-loop to ...
+Use $strict-agent-loop at /path/to/strict-agent-loop to help with this task.
 ```
 
 ## Invocation Pattern
@@ -70,14 +70,17 @@ Example:
 Use $strict-agent-loop to refactor this repository in strict atomic steps.
 Before each round, tell me the exact task, the local done condition, and the global stop condition.
 Create and maintain .codex-loop/state.json in the repo root.
-Keep using one persistent executor agent and stop only when pytest passes, lint passes, and the requested refactor is complete.
+Keep using one persistent executor agent.
+Stop only when pytest passes, lint passes, and the requested refactor is complete.
 ```
 
 Another example with an explicit path:
 
 ```text
 Use $strict-agent-loop at /abs/path/to/strict-agent-loop to fix the bug in this repo.
-Do one atomic task per round, inherit the current context into the first executor agent, and keep looping until the failing test is fixed and a regression test is added.
+Do one atomic task per round.
+Inherit the current context into the first executor agent.
+Keep looping until the failing test is fixed and a regression test is added.
 ```
 
 ## Helper Scripts
@@ -133,6 +136,25 @@ python scripts/compact_state.py --state /abs/path/to/repo/.codex-loop/state.json
 ## Limits
 
 This skill enforces a stricter protocol, not a new runtime. It makes shortcutting harder, but it cannot guarantee a mathematically infinite loop because actual execution is still bounded by the Codex session, tool availability, and model context limits.
+
+## Practical Advice For Real Sessions
+
+To make the loop hold up better in practice:
+
+- Keep the global stop condition concrete and externally checkable. Good examples are `pytest passes`, `a specific file is updated`, or `a regression test exists`.
+- Keep each iteration small enough that one round can be verified quickly. If one step sounds like a milestone, split it again.
+- Write state into the target repository, not into a temporary directory. That makes interruption and recovery much cheaper.
+- Run `compact_state.py` periodically, especially after several rounds or after a large diff, so the controller can recover from a short context window.
+- Decide in advance what counts as a real blocker and what counts as a missing tool. If a required tool is unavailable, record it explicitly instead of letting the loop drift.
+- Prefer success evidence that the controller can rerun directly, such as `pytest -q`, `npm test`, `ruff check`, or a short file diff inspection.
+- If the task is large, state hard limits up front, such as `max_iterations` or `max_no_progress_rounds`, so the loop fails loudly instead of silently degrading.
+
+If you expect a long session, a good default is:
+
+- persist `.codex-loop/state.json` in the repo root
+- compact every 5 to 10 verified rounds
+- keep one executor agent per active task
+- treat the disk state as authoritative whenever memory and repo state disagree
 
 ## Local Validation
 
