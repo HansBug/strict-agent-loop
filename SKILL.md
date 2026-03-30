@@ -1,146 +1,222 @@
 ---
 name: strict-agent-loop
-description: Enforce strict iterative execution with a persistent subagent, explicit per-step task announcements, disk-backed loop state, and repeated stop-condition checks. Use when Codex must avoid skipping work, must keep inheriting prior execution context across iterations, and should keep executing one small verified task at a time until a global stopping rule is satisfied or a hard blocker is reached.
+description: Enforce strict iterative execution for interactive long tasks and unattended Codex-supervised runs, with one small verified task per round, explicit round announcements, append-only disk logs, recoverable state, progress broadcasts, and machine-checkable stop conditions. Use when Codex must not skip the middle, must inherit prior context across rounds, and should continue until an external stop rule or real blocker is reached.
 ---
 
 # Strict Agent Loop
 
 ## Overview
 
-Use this skill to turn a vague or easy-to-skimp task into a controlled loop.
-Keep the control plane in the current agent, run the work plane through one persistent executor subagent, and treat the disk state as the source of truth.
+Use this skill when the work is large, quality-sensitive, or easy for Codex to compress into a vague summary.
+The current Codex session is always the controller for the task it is handling.
+This skill supports two operating modes:
 
-## Required Workflow
+- `interactive`: the controller stays in front of the user and reports every round
+- `unattended`: an outer supervisor repeatedly runs or resumes Codex while the inner controller keeps following the same strict loop protocol
 
-1. Define the loop contract before doing any work.
-2. Initialize or load the disk state.
-3. Spawn or recover the executor subagent.
-4. Execute exactly one atomic task per iteration.
-5. Verify, persist, compact, and re-evaluate stop conditions after every iteration.
-6. Stop only when the global stop condition is satisfied, a hard safety limit is hit, or a real blocker prevents further progress.
+Read [protocol.md](references/protocol.md) before starting.
+Read [modes.md](references/modes.md) when choosing a mode.
+Read [stop_checks.md](references/stop_checks.md) when defining machine-checkable stop rules.
+Read [recovery.md](references/recovery.md) when recovering from executor loss, supervisor loss, or context pressure.
 
-Read [protocol.md](references/protocol.md) before the first run.
-Read [prompt_templates.md](references/prompt_templates.md) when composing executor prompts.
-Read [state_schema.md](references/state_schema.md) when you need to inspect or repair the loop state.
-Read [recovery.md](references/recovery.md) when the executor agent dies, the state drifts, or the context becomes too long.
+## If Asked How To Use This Skill
 
-## 1. Define the loop contract
+When the user asks how to use this skill, answer concretely.
 
-Before spawning any subagent, explicitly define:
+1. Explain that there are two modes:
+   - `interactive`: the current Codex session remains user-facing
+   - `unattended`: `scripts/supervise.py` owns the outer while-loop
+2. If the user did not choose a mode, show both quick starts.
+3. Always mention the durable artifacts:
+   - `.codex-loop/state.json`
+   - `.codex-loop/events.jsonl`
+   - `.codex-loop/iterations.jsonl`
+   - `.codex-loop/status-history.jsonl`
+   - `.codex-loop/latest-status.txt`
+   - `.codex-loop/latest-stop-report.json`
+   - `.codex-loop/run-summary.md`
+   - `.codex-loop/rounds/`
+4. Always mention that unattended runs should rely on machine-checkable stop conditions, not only natural-language claims.
+5. Give the user an exact prompt or shell command, not only prose.
+
+## Required Loop Contract
+
+Before iteration 1, define all of these:
 
 - `goal`
 - `global_stop_condition`
 - `workspace_root`
 - `success_evidence`
 - `blocker_definition`
+- `operating_mode`
+- `stop_checks`
 - `hard_limits`
   - `max_iterations`
   - `max_no_progress_rounds`
-  - optional context-compaction threshold
+  - optional context compaction threshold
+- unattended only:
+  - `max_rounds_per_invocation`
+  - `max_consecutive_failures`
 
-If the user did not provide a stop condition, infer one and say it before continuing.
-Do not start the loop while the goal or stop condition is ambiguous.
+Do not start the loop while the goal or stop rule is materially unclear.
 
-## 2. Initialize or load disk state
+## Disk Is Authoritative
 
-Initialize `.codex-loop/state.json` inside the target workspace with `scripts/init_state.py`.
-Never keep the only copy of progress in model memory.
+Do not rely on memory alone.
+At minimum, keep these artifacts current and queryable:
 
-Example:
+- `.codex-loop/state.json`
+- `.codex-loop/events.jsonl`
+- `.codex-loop/iterations.jsonl`
+- `.codex-loop/status-history.jsonl`
+- `.codex-loop/latest-status.txt`
+- `.codex-loop/latest-stop-report.json`
+- `.codex-loop/run-summary.md`
+- `.codex-loop/rounds/iteration-XXXX.md`
 
-```bash
-python scripts/init_state.py \
-  --state /abs/path/to/repo/.codex-loop/state.json \
-  --goal "Refactor the package safely" \
-  --global-stop-condition "Stop only when tests pass, lint passes, and the requested refactor is complete." \
-  --workspace-root /abs/path/to/repo \
-  --success-evidence "pytest passes" \
-  --success-evidence "lint passes"
-```
+If unattended mode is active, also keep:
 
-Reuse the existing state file if the loop already exists.
-If the state file exists but is stale or inconsistent, repair it instead of discarding it blindly.
+- `.codex-loop/supervisor/`
 
-## 3. Spawn or recover the executor
+The in-memory `history` window in `state.json` may be compacted.
+The full append-only record still lives in `iterations.jsonl`, `events.jsonl`, `status-history.jsonl`, and `rounds/`.
 
-Create exactly one executor subagent for the active loop.
-On the first iteration, spawn it with `fork_context=true` so it inherits the current context.
-Persist the returned executor id into the state file after creation.
+## Interactive Mode
 
-If the executor dies or loses context:
+Interactive mode is for long tasks where a human is present and wants to see every round.
 
-- compact the state with `scripts/compact_state.py`
-- spawn a replacement executor
-- send the `context_snapshot`, recent verified history, and current loop contract
-- continue the loop instead of restarting the entire task from scratch
+Rules:
 
-Do not create a fresh executor on every iteration unless recovery is required.
+- Keep the current Codex session as controller.
+- Use one persistent executor subagent whenever possible.
+- Before each round, tell the user:
+  - iteration number
+  - completed rounds so far
+  - this round
+  - local done condition
+  - global stop condition
+  - stop after this round if
+  - recent average round time and estimated remaining time when available
+- Write the same announcement to `events.jsonl` with `scripts/append_event.py`.
+- After the round, verify, record it with `scripts/update_state.py`, re-check stop conditions with `scripts/check_stop.py`, then refresh `latest-status.txt`, `status-history.jsonl`, `latest-stop-report.json`, and `run-summary.md` with `scripts/report_status.py`.
 
-## 4. Run one atomic task per iteration
+## Unattended Mode
 
-Before dispatching work, tell the user exactly:
+Unattended mode is for long-running work where the outer while-loop must survive beyond one Codex invocation.
 
-- the iteration number
-- the one atomic task for this round
-- the local done condition for this round
-- the unchanged global stop condition
-- the condition that will cause the loop to stop after this round
+Architecture:
 
-Then send the executor only the one atomic task plus the local done condition.
-Do not silently broaden scope.
-Do not combine diagnosis, implementation, verification, and documentation into one round unless the task is trivially small and still objectively atomic.
+- the outer loop lives in `scripts/supervise.py`
+- the supervisor starts or resumes Codex with `codex exec` or `codex exec resume`
+- the inner Codex session still uses this skill as controller
+- disk artifacts bridge one invocation to the next
+
+Rules:
+
+- The supervisor owns outer repetition.
+- The inner controller still owns task decomposition, verification, and executor management for its current invocation.
+- Each unattended invocation must stop cleanly after:
+  - the global stop condition is met
+  - a real blocker is reached
+  - the per-invocation round budget is consumed
+- Because no human is present, round announcements must still be written to disk.
+- The supervisor must refresh durable progress broadcasts so the run does not look dead.
+
+## Broadcast Rules
+
+Broadcasting is mandatory in both modes.
+
+Interactive mode:
+
+- tell the user directly
+- write the round announcement to `events.jsonl`
+- refresh `status-history.jsonl`, `latest-status.txt`, and `run-summary.md`
+
+Unattended mode:
+
+- write `round.started` announcements to `events.jsonl`
+- refresh `status-history.jsonl`, `latest-status.txt`, `latest-stop-report.json`, and `run-summary.md`
+- let the supervisor print heartbeat-style summaries that include:
+  - completed iteration count
+  - approximate progress bar
+  - recent iteration times
+  - recent average iteration time
+  - estimated remaining time when possible
+
+## One Atomic Task Per Round
+
+Each round must stay objectively small.
 
 Good atomic tasks:
 
-- reproduce one failing test
+- reproduce one failure
+- compute one next hailstone number
 - patch one isolated bug
 - add one regression test
 - update one document section
-- run one validation command and interpret the result
+- run one validation command and interpret it
 
 Bad atomic tasks:
 
-- "finish the whole feature"
-- "fix all remaining issues"
-- "implement, test, document, and polish everything"
+- finish the whole feature
+- fix all remaining issues
+- implement, test, document, and polish everything
 
-## 5. Verify and persist every round
+## Required Round Lifecycle
 
-After each executor round:
+For every round:
 
-1. Inspect the changed artifacts yourself.
-2. Validate the result with evidence such as tests, file diffs, logs, or command output.
-3. Append the verified result with `scripts/update_state.py`.
-4. Rebuild the compact snapshot with `scripts/compact_state.py` when history gets long or the executor needs recovery.
-5. Re-evaluate whether the loop should stop with `scripts/check_stop.py`.
+1. Announce the round.
+2. Log the announcement with `scripts/append_event.py`.
+3. Do exactly one atomic task.
+4. Verify the result with evidence.
+5. Record the verified round with `scripts/update_state.py`.
+6. Re-check machine stop conditions with `scripts/check_stop.py`.
+7. Refresh durable progress outputs with `scripts/report_status.py`.
+8. Compact state with `scripts/compact_state.py` when context pressure grows.
 
 Never mark progress as complete without evidence.
-Never skip the verification step because the executor "probably did it right".
+Never skip verification because the executor probably did it right.
 
-## 6. Stop conditions
+## Machine-Checkable Stop Conditions
 
-Stop successfully only when the global stop condition is satisfied.
-Stop unsuccessfully only when at least one of these is true:
+Natural-language stop conditions are not enough for unattended runs.
+Whenever possible, define machine checks such as:
 
-- a hard safety limit is reached
-- a blocker prevents further progress
-- the user interrupts or changes scope
+- `--stop-command "pytest -q"`
+- `--stop-command "ruff check ."`
+- `--require-path docs/feature.md`
+- `--require-text "README.md::hailstone sequence"`
 
-If the loop stops unsuccessfully, say exactly why and record that reason in the state.
+If stop checks exist, treat them as the authority.
+Do not claim success while stop checks still fail.
 
-## Non-Negotiable Rules
+## Recovery
 
-- Keep the controller role in the current agent. Do not let the executor decide when the overall task is done.
-- Keep the disk state authoritative. Use memory as a cache, not as the ledger.
-- Keep the executor persistent across iterations whenever possible.
-- Keep each iteration small enough that failure is obvious and recovery is cheap.
-- Keep the user informed before each round.
-- Keep the same global stop condition unless the user explicitly changes it.
-- Do not claim success because "most of the work is done".
+If the executor disappears or loses context:
+
+1. compact the state
+2. rebuild from `context_snapshot`, `run-summary.md`, recent `history`, `iterations.jsonl`, and `events.jsonl`
+3. spawn a replacement executor
+4. continue without restarting iteration numbering
+
+If unattended mode loses its Codex thread:
+
+1. keep the same state file and append-only logs
+2. clear the stored thread id
+3. let the supervisor start a fresh Codex invocation
+4. recover from disk state, not from memory
 
 ## Fast Start
 
-1. Read [protocol.md](references/protocol.md).
-2. Initialize `.codex-loop/state.json`.
-3. Spawn one persistent executor with inherited context.
-4. Loop through atomic tasks until `scripts/check_stop.py` says to stop.
+Interactive quick start:
+
+1. Use `$strict-agent-loop`.
+2. Tell Codex the goal, stop condition, and evidence.
+3. Require durable round announcements and progress reporting.
+
+Unattended quick start:
+
+1. Initialize `.codex-loop/state.json` with `--operating-mode unattended`.
+2. Define machine stop checks.
+3. Run `scripts/supervise.py`.

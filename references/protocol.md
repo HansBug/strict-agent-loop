@@ -1,26 +1,50 @@
 # Protocol
 
-Use this protocol when the current task is large enough, ambiguous enough, or quality-sensitive enough that Codex might otherwise compress the middle.
+Use this protocol when the task is large enough, ambiguous enough, or quality-sensitive enough that Codex might otherwise compress the middle.
 
-## Controller and Executor
+## Controller Model
 
-- Keep the current agent as the controller.
-- Keep exactly one persistent executor subagent per active loop.
-- Let the controller decide scope, stop conditions, verification, and recovery.
-- Let the executor do only one atomic task at a time.
+- The current Codex session is always the controller.
+- Keep one persistent executor subagent when possible.
+- The controller owns scope, verification, stop checks, recovery, and disk state.
+- The executor owns only one atomic task at a time.
 
-## Loop Contract
+## Required Contract Before Iteration 1
 
-Define the contract before iteration 1:
+Define all of these before starting:
 
 - `goal`
 - `global_stop_condition`
 - `workspace_root`
 - `success_evidence`
 - `blocker_definition`
-- `hard_limits`
+- `operating_mode`
+- `max_iterations`
+- `max_no_progress_rounds`
 
-Do not continue if any of those fields is missing or materially unclear.
+If unattended mode is used, also define:
+
+- `max_rounds_per_invocation`
+- `max_consecutive_failures`
+- machine-checkable stop rules
+
+Do not continue if any of those are materially unclear.
+
+## Disk-Backed Sources Of Truth
+
+The loop should be recoverable from disk.
+At minimum, maintain:
+
+- `.codex-loop/state.json`
+- `.codex-loop/events.jsonl`
+- `.codex-loop/iterations.jsonl`
+- `.codex-loop/status-history.jsonl`
+- `.codex-loop/latest-status.txt`
+- `.codex-loop/latest-stop-report.json`
+- `.codex-loop/run-summary.md`
+- `.codex-loop/rounds/iteration-XXXX.md`
+
+Treat `state.json` as the current working state and the JSONL/Markdown artifacts as the full durable trail.
 
 ## Atomicity Rules
 
@@ -31,46 +55,55 @@ A task is atomic only if all of these are true:
 - failure is easy to localize
 - recovery does not require replaying the whole loop
 
-If a proposed iteration sounds like a milestone, it is too large.
-If it sounds like one command, one file change, or one bounded diagnosis, it is probably fine.
+If a proposed round sounds like a milestone, it is too large.
 
-## Required User-Facing Announcement
+## Required Announcement Before Each Round
 
-Before dispatching each round, tell the user:
+Before dispatching each round, announce:
 
 - `Iteration N`
+- `Completed so far`
 - `This round`
 - `Local done condition`
 - `Global stop condition`
 - `Stop after this round if`
+- recent average round time and ETA when available
 
-This is mandatory. Do not hide the current loop state.
+Interactive mode should say this to the user and log it to `events.jsonl`.
+Unattended mode should at least log it to `events.jsonl`.
 
 ## Required Controller Actions After Each Round
 
 1. Inspect the changed files or command output yourself.
-2. Verify the result.
-3. Append one history entry to the state file.
-4. Refresh the compact snapshot if needed.
-5. Re-check whether the loop should stop.
+2. Verify the result with evidence.
+3. Record the round with `update_state.py`.
+4. Re-check stop conditions with `check_stop.py`.
+5. Refresh status outputs with `report_status.py`.
+6. Compact state if context pressure is growing.
 
-## Hard Stop Conditions
+Do not skip verification.
+Do not rely on the executor's word alone.
 
-Stop the loop immediately if:
+## Stop Rules
 
-- the global stop condition is met
+Stop immediately if any of these is true:
+
+- the machine-checkable stop rules pass
+- the loop status becomes `blocked`
+- the loop status becomes `failed`
 - `max_iterations` is reached
 - `max_no_progress_rounds` is reached
-- the user changes scope
-- a real blocker makes safe progress impossible
 
-## Recovery
+If machine-checkable stop rules exist, they are the authority.
 
-If the executor disappears or loses context:
+## Compaction
 
-1. compact the state
-2. spawn a replacement executor
-3. send the compact snapshot plus the current task
-4. keep the same controller and the same state file
+The in-memory `history` window may be compacted.
+That does not mean information was lost.
+The full per-round and per-status history should still be recoverable from:
 
-Do not silently restart from iteration 1.
+- `iterations.jsonl`
+- `events.jsonl`
+- `status-history.jsonl`
+- `rounds/`
+- `run-summary.md`

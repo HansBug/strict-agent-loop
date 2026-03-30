@@ -44,31 +44,60 @@ jobs:
           set -euo pipefail
           tmpdir="$(mktemp -d)"
           state_path="$tmpdir/.codex-loop/state.json"
+          marker_path="$tmpdir/done.txt"
 
           python scripts/init_state.py \
             --state "$state_path" \
             --goal "Verify compatibility smoke test" \
-            --global-stop-condition "Stop only when the lifecycle scripts run cleanly." \
+            --global-stop-condition "Stop only when the lifecycle scripts run cleanly and done.txt contains done." \
             --workspace-root "$tmpdir" \
-            --success-evidence "check_stop.py returns success"
+            --success-evidence "check_stop.py returns success" \
+            --require-path done.txt \
+            --require-text "done.txt::done"
+
+          python scripts/append_event.py \
+            --state "$state_path" \
+            --kind round.started \
+            --message "Compatibility smoke iteration 1 announced" \
+            --data iteration=1 \
+            --data task="record first lifecycle iteration" \
+            --data local_done_condition="first verified round is persisted" \
+            --data global_stop_condition="lifecycle scripts run and done.txt contains done" \
+            --data stop_after_this_round="machine stop checks pass"
 
           python scripts/update_state.py \
             --state "$state_path" \
-            --task "Record a smoke-test iteration" \
+            --task "Record the first smoke-test iteration" \
             --local-done-condition "A verified iteration is appended" \
-            --result-summary "The iteration was written successfully" \
+            --result-summary "The first iteration was written successfully" \
             --verification-summary "Validated by reading the updated state file" \
-            --next-task "Mark the loop complete" \
+            --announcement "Iteration 1: record the first smoke-test iteration" \
+            --next-task "Create the success marker and finalize the loop" \
             --agent-id "compat-smoke-executor" \
             --executor-inherited-context
 
+          printf 'done\n' > "$marker_path"
+
           python scripts/update_state.py \
             --state "$state_path" \
-            --task "Mark the loop complete" \
-            --local-done-condition "The global stop condition is marked as met" \
-            --result-summary "The loop was marked completed" \
-            --verification-summary "Validated by check_stop.py" \
+            --task "Create the success marker and finalize the loop" \
+            --local-done-condition "done.txt exists and contains done" \
+            --result-summary "The lifecycle smoke marker was created and the loop was marked completed" \
+            --verification-summary "Validated by reading done.txt and re-running check_stop.py" \
+            --announcement "Iteration 2: create the success marker and finalize the loop" \
+            --artifact "$marker_path" \
+            --evidence "$marker_path" \
             --stop-met
 
           python scripts/check_stop.py --state "$state_path"
+          python scripts/report_status.py --state "$state_path" --label compat.smoke
           python scripts/compact_state.py --state "$state_path" --keep-last 1
+
+          test -f "$tmpdir/.codex-loop/events.jsonl"
+          test -f "$tmpdir/.codex-loop/iterations.jsonl"
+          test -f "$tmpdir/.codex-loop/status-history.jsonl"
+          test -f "$tmpdir/.codex-loop/latest-status.txt"
+          test -f "$tmpdir/.codex-loop/latest-stop-report.json"
+          test -f "$tmpdir/.codex-loop/run-summary.md"
+          test -f "$tmpdir/.codex-loop/rounds/iteration-0001.md"
+          test -f "$tmpdir/.codex-loop/rounds/iteration-0002.md"
