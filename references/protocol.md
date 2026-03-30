@@ -35,16 +35,18 @@ Do not continue if any of those are materially unclear.
 The loop should be recoverable from disk.
 At minimum, maintain:
 
-- `.codex-loop/state.json`
-- `.codex-loop/events.jsonl`
-- `.codex-loop/iterations.jsonl`
-- `.codex-loop/status-history.jsonl`
-- `.codex-loop/latest-status.txt`
-- `.codex-loop/latest-stop-report.json`
-- `.codex-loop/run-summary.md`
-- `.codex-loop/rounds/iteration-XXXX.md`
+- `.codex-loop/registry.json`
+- `.codex-loop/tasks/<task-id>/state.json`
+- `.codex-loop/tasks/<task-id>/events.jsonl`
+- `.codex-loop/tasks/<task-id>/iterations.jsonl`
+- `.codex-loop/tasks/<task-id>/status-history.jsonl`
+- `.codex-loop/tasks/<task-id>/latest-status.txt`
+- `.codex-loop/tasks/<task-id>/latest-stop-report.json`
+- `.codex-loop/tasks/<task-id>/run-summary.md`
+- `.codex-loop/tasks/<task-id>/rounds/iteration-XXXX.md`
 
-Treat `state.json` as the current working state and the JSONL/Markdown artifacts as the full durable trail.
+Treat the task-local `state.json` as the current working state and the JSONL/Markdown artifacts as the full durable trail.
+Treat `registry.json` as the manager index that tells you which task roots exist.
 
 ## Atomicity Rules
 

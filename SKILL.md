@@ -15,6 +15,7 @@ This skill supports two operating modes:
 - `unattended`: an outer supervisor repeatedly runs or resumes Codex while the inner controller keeps following the same strict loop protocol
 
 Read [protocol.md](references/protocol.md) before starting.
+Read [management.md](references/management.md) before choosing or creating a task id.
 Read [modes.md](references/modes.md) when choosing a mode.
 Read [stop_checks.md](references/stop_checks.md) when defining machine-checkable stop rules.
 Read [recovery.md](references/recovery.md) when recovering from executor loss, supervisor loss, or context pressure.
@@ -27,17 +28,26 @@ When the user asks how to use this skill, answer concretely.
    - `interactive`: the current Codex session remains user-facing
    - `unattended`: `scripts/supervise.py` owns the outer while-loop
 2. If the user did not choose a mode, show both quick starts.
-3. Always mention the durable artifacts:
-   - `.codex-loop/state.json`
-   - `.codex-loop/events.jsonl`
-   - `.codex-loop/iterations.jsonl`
-   - `.codex-loop/status-history.jsonl`
-   - `.codex-loop/latest-status.txt`
-   - `.codex-loop/latest-stop-report.json`
-   - `.codex-loop/run-summary.md`
-   - `.codex-loop/rounds/`
-4. Always mention that unattended runs should rely on machine-checkable stop conditions, not only natural-language claims.
-5. Give the user an exact prompt or shell command, not only prose.
+3. Always explain the managed layout:
+   - `.codex-loop/registry.json`
+   - `.codex-loop/tasks/<task-id>/state.json`
+   - task-local `events.jsonl`, `iterations.jsonl`, `status-history.jsonl`, `latest-status.txt`, `latest-stop-report.json`, `run-summary.md`, `rounds/`, and unattended-only `supervisor/`
+4. Always mention `list_tasks.py` and `show_task.py` when the repo may host multiple loops.
+5. Always mention that unattended runs should rely on machine-checkable stop conditions, not only natural-language claims.
+6. Give the user an exact prompt or shell command, not only prose.
+
+## Managed Task Selection
+
+Default to the managed layout under `<workspace_root>/.codex-loop/`.
+
+- Before starting work, check whether `.codex-loop/registry.json` already exists.
+- Each long-running objective should have one task id and one task root under `.codex-loop/tasks/<task-id>/`.
+- If the user is starting new work and did not specify a task id, derive one from the goal by using `scripts/init_state.py`.
+- If the user wants to resume and gives a task id, use that exact managed task.
+- If the user wants to resume but did not name a task:
+  - if exactly one plausible running task exists, use it
+  - if several plausible tasks exist, show `scripts/list_tasks.py` output and ask which task to continue
+- Do not ask the user to enumerate storage paths unless they explicitly want custom paths.
 
 ## Required Loop Contract
 
@@ -65,18 +75,19 @@ Do not start the loop while the goal or stop rule is materially unclear.
 Do not rely on memory alone.
 At minimum, keep these artifacts current and queryable:
 
-- `.codex-loop/state.json`
-- `.codex-loop/events.jsonl`
-- `.codex-loop/iterations.jsonl`
-- `.codex-loop/status-history.jsonl`
-- `.codex-loop/latest-status.txt`
-- `.codex-loop/latest-stop-report.json`
-- `.codex-loop/run-summary.md`
-- `.codex-loop/rounds/iteration-XXXX.md`
+- `.codex-loop/registry.json`
+- `.codex-loop/tasks/<task-id>/state.json`
+- `.codex-loop/tasks/<task-id>/events.jsonl`
+- `.codex-loop/tasks/<task-id>/iterations.jsonl`
+- `.codex-loop/tasks/<task-id>/status-history.jsonl`
+- `.codex-loop/tasks/<task-id>/latest-status.txt`
+- `.codex-loop/tasks/<task-id>/latest-stop-report.json`
+- `.codex-loop/tasks/<task-id>/run-summary.md`
+- `.codex-loop/tasks/<task-id>/rounds/iteration-XXXX.md`
 
 If unattended mode is active, also keep:
 
-- `.codex-loop/supervisor/`
+- `.codex-loop/tasks/<task-id>/supervisor/`
 
 The in-memory `history` window in `state.json` may be compacted.
 The full append-only record still lives in `iterations.jsonl`, `events.jsonl`, `status-history.jsonl`, and `rounds/`.
@@ -217,6 +228,6 @@ Interactive quick start:
 
 Unattended quick start:
 
-1. Initialize `.codex-loop/state.json` with `--operating-mode unattended`.
+1. Initialize a managed task with `scripts/init_state.py --workspace-root <repo> --task-id <task-id> --operating-mode unattended`.
 2. Define machine stop checks.
-3. Run `scripts/supervise.py`.
+3. Start `scripts/supervise.py` against `.codex-loop/tasks/<task-id>/state.json`.

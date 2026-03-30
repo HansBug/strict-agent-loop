@@ -1,7 +1,10 @@
 # State Schema
 
-The authoritative current state lives in `.codex-loop/state.json`.
+The authoritative current state lives in `.codex-loop/tasks/<task-id>/state.json`.
 This file is intentionally paired with append-only ledgers so the rolling history window can be compacted without losing the full trail.
+
+The task manager index lives separately at `.codex-loop/registry.json`.
+It is not the full state. It is a workspace-level lookup table for managed tasks.
 
 ## Top-Level Fields
 
@@ -9,6 +12,7 @@ This file is intentionally paired with append-only ledgers so the rolling histor
 - `skill_name`: always `strict-agent-loop`
 - `created_at`: ISO-8601 UTC timestamp
 - `updated_at`: ISO-8601 UTC timestamp
+- `task`: task management metadata
 - `goal`: overall goal
 - `global_stop_condition`: condition required for successful termination
 - `workspace_root`: absolute target workspace path
@@ -27,6 +31,12 @@ This file is intentionally paired with append-only ledgers so the rolling histor
 - `context_snapshot`: compact summary used for recovery
 - `archive_summary`: compacted digest of trimmed history
 - `history`: recent verified history window
+
+## `task`
+
+- `id`: managed task id
+- `root_dir`: task-local durable root
+- `manager_dir`: workspace-level `.codex-loop` directory
 
 ## `limits`
 
@@ -118,8 +128,33 @@ This is a recent working window, not the full archive.
 
 The full trail lives outside `history`:
 
-- `events.jsonl`: control-plane events and announcements
-- `iterations.jsonl`: full verified round records
-- `status-history.jsonl`: progress broadcasts and heartbeats
-- `rounds/`: human-readable per-round summaries
-- `run-summary.md`: current whole-cycle summary
+- task-local `events.jsonl`: control-plane events and announcements
+- task-local `iterations.jsonl`: full verified round records
+- task-local `status-history.jsonl`: progress broadcasts and heartbeats
+- task-local `rounds/`: human-readable per-round summaries
+- task-local `run-summary.md`: current whole-cycle summary
+
+## Registry Entry
+
+`registry.json` keeps one lightweight entry per managed task so operators can discover and resume tasks safely.
+
+Each entry includes:
+
+- `id`
+- `state_path`
+- `task_root_dir`
+- `manager_dir`
+- `goal`
+- `operating_mode`
+- `status`
+- `workspace_root`
+- `created_at`
+- `updated_at`
+- `iteration`
+- `next_task`
+- `last_event_at`
+- `latest_status_path`
+- `latest_stop_report_path`
+- `run_summary_path`
+- `needs_human_input`
+- `blocker_reason`

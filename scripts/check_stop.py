@@ -10,7 +10,7 @@ from stop_tools import build_stop_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate whether a strict-agent-loop should stop.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     return parser.parse_args()
 
 

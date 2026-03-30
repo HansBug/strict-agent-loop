@@ -1,13 +1,33 @@
 #!/usr/bin/env python3
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Union
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 DEFAULT_MAX_CONTEXT_CHARS = 12000
 DEFAULT_MAX_ARCHIVE_CHARS = 8000
+DEFAULT_MANAGER_DIR_NAME = ".codex-loop"
+DEFAULT_TASKS_DIR_NAME = "tasks"
+DEFAULT_REGISTRY_FILENAME = "registry.json"
+LEGACY_DEFAULT_STATE_RELATIVE_PATH = ".codex-loop/state.json"
+
+
+def slugify_task_component(value: str, fallback: str = "task") -> str:
+    lowered = value.strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", "-", lowered)
+    normalized = normalized.strip("-")
+    return normalized or fallback
+
+
+def build_generated_task_id(goal: str, timestamp: str) -> str:
+    stamp = re.sub(r"[^0-9]", "", timestamp)[:14]
+    if not stamp:
+        stamp = "task"
+    slug = slugify_task_component(goal, fallback="task")
+    return "%s-%s" % (stamp, slug[:32])
 
 
 def utc_now() -> str:
@@ -27,6 +47,7 @@ def save_state(path: Union[str, Path], state: Dict[str, Any]) -> None:
     with state_path.open("w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
         f.write("\n")
+    update_registry_from_state(state_path, state)
 
 
 def normalize_text(value: str) -> str:
@@ -39,6 +60,26 @@ def format_list(items: Iterable[str]) -> List[str]:
 
 def state_dir_for(path: Union[str, Path]) -> Path:
     return Path(path).resolve().parent
+
+
+def default_manager_dir_for_workspace(workspace_root: Union[str, Path]) -> Path:
+    return Path(workspace_root).resolve() / DEFAULT_MANAGER_DIR_NAME
+
+
+def default_registry_path_for_workspace(workspace_root: Union[str, Path]) -> Path:
+    return default_manager_dir_for_workspace(workspace_root) / DEFAULT_REGISTRY_FILENAME
+
+
+def default_task_root_for_workspace(workspace_root: Union[str, Path], task_id: str) -> Path:
+    return default_manager_dir_for_workspace(workspace_root) / DEFAULT_TASKS_DIR_NAME / slugify_task_component(task_id)
+
+
+def default_state_path_for_workspace(workspace_root: Union[str, Path], task_id: str) -> Path:
+    return default_task_root_for_workspace(workspace_root, task_id) / "state.json"
+
+
+def legacy_default_state_path_for_workspace(workspace_root: Union[str, Path]) -> Path:
+    return Path(workspace_root).resolve() / LEGACY_DEFAULT_STATE_RELATIVE_PATH
 
 
 def default_event_log_path(path: Union[str, Path]) -> Path:
@@ -160,10 +201,96 @@ def ensure_log_directories(state: Dict[str, Any]) -> None:
     supervisor_dir = supervisor_state.get("log_dir")
     if supervisor_dir:
         Path(supervisor_dir).resolve().mkdir(parents=True, exist_ok=True)
+    task_state = state.setdefault("task", {})
+    manager_dir = task_state.get("manager_dir")
+    if manager_dir:
+        Path(manager_dir).resolve().mkdir(parents=True, exist_ok=True)
+
+
+def infer_task_id_from_state_path(state_path: Union[str, Path]) -> str:
+    resolved_state_path = Path(state_path).resolve()
+    if resolved_state_path.parent.parent.name == DEFAULT_TASKS_DIR_NAME:
+        return slugify_task_component(resolved_state_path.parent.name)
+    if resolved_state_path.parent.name == DEFAULT_MANAGER_DIR_NAME:
+        return "default"
+    return slugify_task_component(resolved_state_path.parent.name or "default", fallback="default")
+
+
+def registry_path_for_state(state_path: Union[str, Path], state: Optional[Dict[str, Any]] = None) -> Path:
+    if state:
+        manager_dir = normalize_text(state.get("task", {}).get("manager_dir", ""))
+        if manager_dir:
+            return Path(manager_dir).resolve() / DEFAULT_REGISTRY_FILENAME
+        workspace_root = normalize_text(state.get("workspace_root", ""))
+        if workspace_root:
+            return default_registry_path_for_workspace(workspace_root)
+    resolved_state_path = Path(state_path).resolve()
+    if resolved_state_path.parent.parent.name == DEFAULT_TASKS_DIR_NAME:
+        return resolved_state_path.parent.parent.parent / DEFAULT_REGISTRY_FILENAME
+    if resolved_state_path.parent.name == DEFAULT_MANAGER_DIR_NAME:
+        return resolved_state_path.parent / DEFAULT_REGISTRY_FILENAME
+    return resolved_state_path.parent / DEFAULT_REGISTRY_FILENAME
+
+
+def load_registry(path: Union[str, Path]) -> Dict[str, Any]:
+    registry_path = Path(path).resolve()
+    if not registry_path.exists():
+        return {
+            "schema_version": 1,
+            "updated_at": "",
+            "tasks": {},
+        }
+    with registry_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_registry(path: Union[str, Path], registry: Dict[str, Any]) -> None:
+    registry_path = Path(path).resolve()
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry["updated_at"] = utc_now()
+    with registry_path.open("w", encoding="utf-8") as f:
+        json.dump(registry, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def build_registry_entry(state_path: Union[str, Path], state: Dict[str, Any]) -> Dict[str, Any]:
+    task_state = state.get("task", {})
+    logging_state = state.get("logging", {})
+    blocker_state = state.get("blocker", {})
+    return {
+        "id": normalize_text(task_state.get("id", "")) or infer_task_id_from_state_path(state_path),
+        "state_path": str(Path(state_path).resolve()),
+        "task_root_dir": normalize_text(task_state.get("root_dir", "")) or str(state_dir_for(state_path)),
+        "manager_dir": normalize_text(task_state.get("manager_dir", "")),
+        "goal": normalize_text(state.get("goal", "")),
+        "operating_mode": normalize_text(state.get("operating_mode", "")),
+        "status": normalize_text(state.get("status", "")),
+        "workspace_root": normalize_text(state.get("workspace_root", "")),
+        "created_at": state.get("created_at", ""),
+        "updated_at": state.get("updated_at", ""),
+        "iteration": int(state.get("counters", {}).get("iteration", 0)),
+        "next_task": normalize_text(state.get("next_task", "")),
+        "last_event_at": logging_state.get("last_event_at", ""),
+        "latest_status_path": normalize_text(logging_state.get("status_text_path", "")),
+        "latest_stop_report_path": normalize_text(logging_state.get("stop_report_path", "")),
+        "run_summary_path": normalize_text(logging_state.get("run_summary_path", "")),
+        "needs_human_input": bool(blocker_state.get("needs_human_input", False)),
+        "blocker_reason": normalize_text(blocker_state.get("reason", "")),
+    }
+
+
+def update_registry_from_state(state_path: Union[str, Path], state: Dict[str, Any]) -> None:
+    registry_path = registry_path_for_state(state_path, state)
+    registry = load_registry(registry_path)
+    tasks = registry.setdefault("tasks", {})
+    entry = build_registry_entry(state_path, state)
+    tasks[entry["id"]] = entry
+    save_registry(registry_path, registry)
 
 
 def build_state(
     state_path: Union[str, Path],
+    task_id: str,
     goal: str,
     global_stop_condition: str,
     workspace_root: Union[str, Path],
@@ -189,6 +316,7 @@ def build_state(
     now = utc_now()
     resolved_state_path = Path(state_path).resolve()
     resolved_workspace = Path(workspace_root).resolve()
+    normalized_task_id = slugify_task_component(task_id, fallback="default")
     resolved_event_log_path = (
         Path(event_log_path).resolve() if event_log_path else default_event_log_path(resolved_state_path)
     )
@@ -203,6 +331,11 @@ def build_state(
         "skill_name": "strict-agent-loop",
         "created_at": now,
         "updated_at": now,
+        "task": {
+            "id": normalized_task_id,
+            "root_dir": str(resolved_state_path.parent),
+            "manager_dir": str(default_manager_dir_for_workspace(resolved_workspace)),
+        },
         "goal": normalize_text(goal),
         "global_stop_condition": normalize_text(global_stop_condition),
         "workspace_root": str(resolved_workspace),
@@ -295,7 +428,11 @@ def summarize_entry(entry: Dict[str, Any]) -> str:
 def build_context_snapshot(state: Dict[str, Any], keep_last: int = 5) -> str:
     history = state.get("history", [])
     recent = history[-keep_last:]
+    task_state = state.get("task", {})
     lines = [
+        "Task id: %s" % normalize_text(task_state.get("id", "")),
+        "Task root: %s" % normalize_text(task_state.get("root_dir", "")),
+        "Manager dir: %s" % normalize_text(task_state.get("manager_dir", "")),
         "Goal: %s" % normalize_text(state.get("goal", "")),
         "Operating mode: %s" % normalize_text(state.get("operating_mode", "")),
         "Global stop condition: %s" % normalize_text(state.get("global_stop_condition", "")),
@@ -405,6 +542,7 @@ def append_event_record(
         "timestamp": utc_now(),
         "kind": normalize_text(kind),
         "message": normalize_text(message),
+        "task_id": normalize_text(state.get("task", {}).get("id", "")),
         "state_path": str(Path(state_path).resolve()),
         "data": data or {},
     }
@@ -511,6 +649,7 @@ def append_iteration_record(
     record = {
         "id": next_record_id,
         "recorded_at": utc_now(),
+        "task_id": normalize_text(state.get("task", {}).get("id", "")),
         "state_path": str(Path(state_path).resolve()),
         "operating_mode": state.get("operating_mode", "interactive"),
         "goal": normalize_text(state.get("goal", "")),
@@ -620,6 +759,7 @@ def build_status_report(
     blocker_state = state.get("blocker", {})
     next_task = normalize_text(state.get("next_task", ""))
     return {
+        "task_id": normalize_text(state.get("task", {}).get("id", "")),
         "status": state.get("status", "running"),
         "operating_mode": state.get("operating_mode", "interactive"),
         "iterations_completed": iteration_count,
@@ -653,6 +793,7 @@ def render_status_text(report: Dict[str, Any]) -> str:
     recent_iteration_human = report.get("recent_iteration_human", [])
     recent_iteration_display = ", ".join(recent_iteration_human) if recent_iteration_human else "unknown"
     lines = [
+        "Task: %s" % report.get("task_id", "unknown"),
         "Status: %s" % report.get("status", "unknown"),
         "Mode: %s" % report.get("operating_mode", "unknown"),
         "Iterations completed: %s" % report.get("iterations_completed", 0),
@@ -720,6 +861,7 @@ def append_status_snapshot(
         "id": next_snapshot_id,
         "timestamp": utc_now(),
         "label": normalize_text(label),
+        "task_id": normalize_text(state.get("task", {}).get("id", "")),
         "state_path": str(Path(state_path).resolve()),
         "report": report,
         "stop": build_stop_report_summary(stop_report),
@@ -740,6 +882,7 @@ def write_stop_report_file(
     stop_report_path = Path(logging_state.get("stop_report_path", "")).resolve()
     payload = dict(stop_report)
     payload["generated_at"] = utc_now()
+    payload["task_id"] = normalize_text(state.get("task", {}).get("id", ""))
     payload["state_path"] = str(Path(state_path).resolve())
     stop_report_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     logging_state["last_stop_report_at"] = payload["generated_at"]
@@ -757,6 +900,7 @@ def render_run_summary(
     stop_summary = build_stop_report_summary(stop_report)
     logging_state = state.get("logging", {})
     supervisor_state = state.get("supervisor", {})
+    task_state = state.get("task", {})
     history = state.get("history", [])
     success_evidence = format_list(state.get("success_evidence", []))
     recent_history = history[-5:]
@@ -766,6 +910,10 @@ def render_run_summary(
         "## Run",
         "",
         "- State file: %s" % Path(state_path).resolve(),
+        "- Task id: `%s`" % normalize_text(task_state.get("id", "")),
+        "- Task root: %s" % normalize_text(task_state.get("root_dir", "")),
+        "- Manager dir: %s" % normalize_text(task_state.get("manager_dir", "")),
+        "- Registry: %s" % registry_path_for_state(state_path, state),
         "- Goal: %s" % normalize_text(state.get("goal", "")),
         "- Mode: `%s`" % state.get("operating_mode", ""),
         "- Status: `%s`" % state.get("status", ""),

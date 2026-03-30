@@ -25,7 +25,7 @@ Wait for the next controller instruction after each round.
 
 ```text
 Use $strict-agent-loop for this repository.
-Read .codex-loop/state.json before acting.
+Read <task-state-path> before acting.
 Operate in interactive mode.
 Before each round, tell me:
 - the iteration number
@@ -35,7 +35,7 @@ Before each round, tell me:
 - the global stop condition
 - when to stop after this round
 - the recent average round time and ETA if available
-Log the same announcement to .codex-loop/events.jsonl.
+Log the same announcement to the task-local events.jsonl.
 After each round, verify it, run check_stop.py, then run report_status.py.
 Do not stop early.
 ```

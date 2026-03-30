@@ -19,7 +19,7 @@ from stop_tools import build_stop_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render a progress-style status report for strict-agent-loop.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     parser.add_argument("--json", action="store_true", help="Print the status report as JSON")
     parser.add_argument(
         "--label",

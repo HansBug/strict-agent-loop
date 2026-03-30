@@ -8,9 +8,14 @@ from pathlib import Path
 from state_tools import (
     append_event_record,
     append_status_snapshot,
+    build_generated_task_id,
     build_state,
     build_status_report,
+    default_state_path_for_workspace,
+    infer_task_id_from_state_path,
+    registry_path_for_state,
     save_state,
+    utc_now,
     write_run_summary,
     write_status_text,
     write_stop_report_file,
@@ -20,7 +25,16 @@ from stop_tools import build_stop_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Initialize a strict-agent-loop state file.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument(
+        "--state",
+        default="",
+        help="Optional path to the task state file. Defaults to <workspace-root>/.codex-loop/tasks/<task-id>/state.json.",
+    )
+    parser.add_argument(
+        "--task-id",
+        default="",
+        help="Optional task id used for management under .codex-loop/tasks/. If omitted, one is generated from the goal.",
+    )
     parser.add_argument("--goal", required=True, help="Overall goal of the loop")
     parser.add_argument(
         "--global-stop-condition",
@@ -100,13 +114,26 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    state_path = Path(args.state).resolve()
+    if args.task_id.strip():
+        task_id = args.task_id.strip()
+    elif args.state.strip():
+        task_id = infer_task_id_from_state_path(args.state)
+    else:
+        task_id = build_generated_task_id(args.goal, timestamp=utc_now())
+    state_path = (
+        Path(args.state).resolve()
+        if args.state.strip()
+        else default_state_path_for_workspace(args.workspace_root, task_id)
+    )
+    if not task_id:
+        task_id = state_path.parent.name
     if state_path.exists() and not args.force:
         print("State file already exists: %s" % state_path, file=sys.stderr)
         return 1
 
     state = build_state(
         state_path=state_path,
+        task_id=task_id,
         goal=args.goal,
         global_stop_condition=args.global_stop_condition,
         workspace_root=args.workspace_root,
@@ -158,6 +185,10 @@ def main() -> int:
         json.dumps(
             {
                 "state": str(state_path),
+                "task_id": state["task"]["id"],
+                "task_root_dir": state["task"]["root_dir"],
+                "manager_dir": state["task"]["manager_dir"],
+                "registry_path": str(registry_path_for_state(state_path, state)),
                 "status": state["status"],
                 "operating_mode": state["operating_mode"],
             },

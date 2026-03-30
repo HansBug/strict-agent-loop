@@ -22,7 +22,7 @@ from state_tools import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Append one verified iteration to the strict loop state.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     parser.add_argument("--task", required=True, help="Atomic task for this iteration")
     parser.add_argument("--local-done-condition", required=True, help="Completion condition for this iteration")
     parser.add_argument("--result-summary", required=True, help="Short verified summary of the result")

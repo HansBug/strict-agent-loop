@@ -20,7 +20,7 @@ def parse_key_value(raw_value: str) -> Dict[str, str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Append an event to .codex-loop/events.jsonl.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     parser.add_argument("--kind", required=True, help="Structured event kind, such as round.started")
     parser.add_argument("--message", required=True, help="Human-readable event message")
     parser.add_argument("--data", action="append", default=[], help="Optional key=value data. Repeat as needed.")

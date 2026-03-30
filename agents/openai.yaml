@@ -1,6 +1,6 @@
 interface:
   display_name: "Strict Agent Loop"
-  short_description: "Strict stepwise controller with durable logs"
-  default_prompt: "Use $strict-agent-loop to run this task as strict atomic rounds with durable state, explicit announcements, progress broadcasts, and machine-checkable stop conditions until completion."
+  short_description: "Managed strict controller with durable per-task logs"
+  default_prompt: "Use $strict-agent-loop to run this task as strict atomic rounds with managed per-task state, explicit announcements, progress broadcasts, and machine-checkable stop conditions until completion."
 policy:
   allow_implicit_invocation: false

@@ -49,6 +49,8 @@ If you can write one small verifier script in the target repo, do that and make 
 
 This is often the best option for unattended work.
 
+When one repo hosts several loops, remember that these checks are evaluated per task state, not globally for every task in the registry.
+
 ## Why Binary Checks Need Good Limits
 
 Some stop checks are binary. They only say "done" or "not done".

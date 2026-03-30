@@ -35,7 +35,7 @@ Expected behavior:
 - `scripts/supervise.py` owns the outer repetition
 - Codex still acts as the inner controller for each invocation
 - the supervisor prints heartbeat summaries and also persists them to disk
-- resume and recovery happen from `.codex-loop/`, not from memory
+- resume and recovery happen from the task root under `.codex-loop/tasks/<task-id>/`, not from memory
 
 Recommended defaults:
 

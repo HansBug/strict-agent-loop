@@ -30,7 +30,7 @@ from stop_tools import build_stop_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run strict-agent-loop in unattended supervisor mode.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     parser.add_argument("--skill-path", required=True, help="Path to the strict-agent-loop skill repository")
     parser.add_argument("--max-cycles", type=int, default=200, help="Maximum outer supervisor cycles")
     parser.add_argument("--sleep-seconds", type=int, default=0, help="Seconds to sleep between cycles")

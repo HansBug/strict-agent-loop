@@ -18,13 +18,14 @@ Do not restart from iteration 1.
 
 If `codex exec resume` fails or the stored thread becomes unusable:
 
-1. keep the same `.codex-loop/` directory
+1. keep the same task root under `.codex-loop/tasks/<task-id>/`
 2. clear the stored thread id
 3. let the supervisor start a fresh invocation
-4. recover from disk state and append-only logs
+4. recover from the task-local disk state and append-only logs
 
 The important files are:
 
+- `.codex-loop/registry.json`
 - `state.json`
 - `run-summary.md`
 - `events.jsonl`

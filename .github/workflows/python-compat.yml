@@ -43,17 +43,21 @@ jobs:
         run: |
           set -euo pipefail
           tmpdir="$(mktemp -d)"
-          state_path="$tmpdir/.codex-loop/state.json"
+          task_id="compat-smoke"
+          state_path="$tmpdir/.codex-loop/tasks/$task_id/state.json"
           marker_path="$tmpdir/done.txt"
 
           python scripts/init_state.py \
-            --state "$state_path" \
             --goal "Verify compatibility smoke test" \
             --global-stop-condition "Stop only when the lifecycle scripts run cleanly and done.txt contains done." \
             --workspace-root "$tmpdir" \
+            --task-id "$task_id" \
             --success-evidence "check_stop.py returns success" \
             --require-path done.txt \
             --require-text "done.txt::done"
+
+          python scripts/list_tasks.py --workspace-root "$tmpdir"
+          python scripts/show_task.py --workspace-root "$tmpdir" --task-id "$task_id"
 
           python scripts/append_event.py \
             --state "$state_path" \
@@ -93,11 +97,12 @@ jobs:
           python scripts/report_status.py --state "$state_path" --label compat.smoke
           python scripts/compact_state.py --state "$state_path" --keep-last 1
 
-          test -f "$tmpdir/.codex-loop/events.jsonl"
-          test -f "$tmpdir/.codex-loop/iterations.jsonl"
-          test -f "$tmpdir/.codex-loop/status-history.jsonl"
-          test -f "$tmpdir/.codex-loop/latest-status.txt"
-          test -f "$tmpdir/.codex-loop/latest-stop-report.json"
-          test -f "$tmpdir/.codex-loop/run-summary.md"
-          test -f "$tmpdir/.codex-loop/rounds/iteration-0001.md"
-          test -f "$tmpdir/.codex-loop/rounds/iteration-0002.md"
+          test -f "$tmpdir/.codex-loop/registry.json"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/events.jsonl"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/iterations.jsonl"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/status-history.jsonl"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/latest-status.txt"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/latest-stop-report.json"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/run-summary.md"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/rounds/iteration-0001.md"
+          test -f "$tmpdir/.codex-loop/tasks/$task_id/rounds/iteration-0002.md"

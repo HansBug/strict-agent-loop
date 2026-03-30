@@ -19,7 +19,7 @@ from stop_tools import build_stop_report
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compact long strict-agent-loop history into a snapshot.")
-    parser.add_argument("--state", required=True, help="Path to .codex-loop/state.json")
+    parser.add_argument("--state", required=True, help="Path to the task state file")
     parser.add_argument("--keep-last", type=int, default=8, help="Retain this many recent history entries")
     parser.add_argument(
         "--max-archive-chars",
