@@ -26,6 +26,9 @@ Wait for the next controller instruction after each round.
 ```text
 Use $strict-agent-loop for this repository.
 Read <task-state-path> before acting.
+Treat <workspace-root> as the place for real deliverables.
+Treat .codex-loop/tasks/<task-id>/ as bookkeeping only.
+For targeted state reads, prefer `python <skill-dir>/scripts/json_get.py <task-state-path> counters.iteration status next_task`.
 Operate in interactive mode.
 Before each round, tell me:
 - the iteration number
@@ -36,6 +39,8 @@ Before each round, tell me:
 - when to stop after this round
 - the recent average round time and ETA if available
 Log the same announcement to the task-local events.jsonl.
+Use the global round counter from `state.counters.iteration`; do not invent a separate local counter.
+Run every command strictly sequentially and never overlap `update_state.py`, `check_stop.py`, or `report_status.py`.
 After each round, verify it, run check_stop.py, then run report_status.py.
 Do not stop early.
 ```
@@ -46,10 +51,15 @@ This is useful as `scripts/supervise.py --prompt-note` content:
 
 ```text
 Keep each round atomic.
+Keep real work artifacts in the workspace root and reserve .codex-loop/tasks/<task-id>/ for bookkeeping.
 Write every round announcement to the event log.
 Persist every verified round and refresh status outputs.
+Use `state.counters.iteration` as the authoritative completed-round count.
+Run commands strictly sequentially. Never start the next command until the previous one has completed and you have checked its exit code.
+Never overlap `update_state.py`, `check_stop.py`, or `report_status.py`.
 If the stop checks still fail, keep going.
 If you hit a real blocker, record it explicitly and exit cleanly.
+After startup recovery, do not keep re-reading the full TASK.md or full state.json every round unless disk state is actually unclear.
 ```
 
 ## Recovery Prompt

@@ -91,10 +91,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--supervisor-model", default="", help="Optional model override for unattended supervision")
     parser.add_argument(
+        "--supervisor-reasoning-effort",
+        default="",
+        choices=["", "low", "medium", "high", "xhigh"],
+        help="Optional reasoning effort override for unattended codex exec invocations.",
+    )
+    parser.add_argument(
         "--supervisor-sandbox",
         default="workspace-write",
         choices=["read-only", "workspace-write", "danger-full-access"],
         help="Sandbox mode for unattended codex exec invocations",
+    )
+    parser.add_argument(
+        "--supervisor-resume-existing-thread",
+        action="store_true",
+        help=(
+            "Opt in to resuming the same Codex thread between unattended invocations. "
+            "Disabled by default because fresh disk-based recovery is more reliable."
+        ),
     )
     parser.add_argument(
         "--supervisor-max-rounds-per-invocation",
@@ -151,7 +165,9 @@ def main() -> int:
         round_summary_dir=args.round_summary_dir,
         supervisor_codex_bin=args.supervisor_codex_bin,
         supervisor_model=args.supervisor_model,
+        supervisor_reasoning_effort=args.supervisor_reasoning_effort,
         supervisor_sandbox=args.supervisor_sandbox,
+        supervisor_resume_existing_thread=args.supervisor_resume_existing_thread,
         supervisor_max_rounds_per_invocation=args.supervisor_max_rounds_per_invocation,
         supervisor_max_consecutive_failures=args.supervisor_max_consecutive_failures,
         next_task=args.next_task,
@@ -168,7 +184,7 @@ def main() -> int:
             "required_text_checks": len(args.require_text),
         },
     )
-    stop_report = build_stop_report(state)
+    stop_report = build_stop_report(state, state_path=state_path)
     report = build_status_report(state, stop_report=stop_report)
     write_status_text(state, report)
     write_stop_report_file(state_path, state, stop_report)

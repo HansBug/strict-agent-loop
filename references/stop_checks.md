@@ -50,6 +50,7 @@ If you can write one small verifier script in the target repo, do that and make 
 This is often the best option for unattended work.
 
 When one repo hosts several loops, remember that these checks are evaluated per task state, not globally for every task in the registry.
+If a verifier needs to inspect the task state file, point it at the managed task's `state.json`. The runtime can project the completed state for final stop evaluation before the loop has formally marked itself completed.
 
 ## Why Binary Checks Need Good Limits
 

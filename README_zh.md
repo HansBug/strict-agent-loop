@@ -94,6 +94,15 @@
 - 变更型脚本都要求显式 `--state`
 - `list_tasks.py` 和 `show_task.py` 负责做轻量管理
 
+## 工作产物目录 vs 循环账本目录
+
+这两个区域要明确分开：
+
+- 真正的任务产物放在 `<workspace-root>/` 下面，比如 `src/`、`docs/`、`tests/`、`output/`。
+- 循环自身的账本和控制面文件放在 `.codex-loop/tasks/<task-id>/`，包括 `state.json`、日志、stop report、轮次摘要等。
+
+这个边界很重要，因为 prompt 如果写得含糊，Codex 很容易把真正的交付物错误地写进 task ledger 目录。除非你明确要求，否则 task root 只应该保存控制和恢复相关的文件。
+
 ## 安装方式
 
 ### 方式一：安装到 Codex skills 目录
@@ -180,6 +189,8 @@ python "$SKILL/scripts/init_state.py" \
 ```text
 请使用 $strict-agent-loop 来处理这个仓库。
 开始前先读取 /abs/path/to/repo/.codex-loop/tasks/parser-fix/state.json。
+把 /abs/path/to/repo 当作真正的工作区根目录。
+把 /abs/path/to/repo/.codex-loop/tasks/parser-fix/ 只当作账本目录：里面只放状态、日志、stop report 和轮次摘要。
 本次使用 interactive 模式。
 每一轮开始前，必须先告诉我：
 - 当前是第几轮
@@ -215,9 +226,13 @@ python "$SKILL/scripts/init_state.py" \
   --stop-command "python verify_task.py" \
   --require-path output/final-report.md \
   --max-iterations 200 \
+  --supervisor-reasoning-effort medium \
   --supervisor-max-rounds-per-invocation 5 \
   --supervisor-max-consecutive-failures 3
 ```
+
+现在无人值守模式默认是“每次新起一个 Codex 调用，然后完全从磁盘恢复”。只有当你明确想跨调用复用同一个内层 Codex 线程时，才在初始化时额外加 `--supervisor-resume-existing-thread`。
+如果你的 provider 在高峰期经常拒绝特别重的推理任务，建议把 `--supervisor-reasoning-effort` 设成 `low` 或 `medium`，可用性通常会更好。
 
 再启动监督器：
 
@@ -226,7 +241,7 @@ python "$SKILL/scripts/supervise.py" \
   --state "$STATE" \
   --skill-path "$SKILL" \
   --heartbeat-seconds 30 \
-  --max-invocation-seconds 900 \
+  --max-invocation-seconds 1800 \
   --max-cycles 200 \
   --prompt-note "每一轮必须只做一个原子任务，必须把播报和状态写入持久化文件，只有 stop checks 通过或真实 blocker 被记录时才允许停止。"
 ```
@@ -239,6 +254,10 @@ python "$SKILL/scripts/supervise.py" \
 - 最近平均单轮耗时
 - 在有足够信号时给出剩余时间估计
 
+而且它会把内层 Codex 的播报、以及每条命令的开始/结束事件同步转发到外层 stdout，所以人即使只是盯着 supervisor 输出，也能判断它是在推进还是卡住。
+
+如果你给 `supervise.py` 发 `SIGINT` 或 `SIGTERM`，它会先保存最新状态、写入中断事件，然后以退出码 `130` 结束，这样后面可以继续从同一个 managed task 恢复。
+
 所以即使你人不在，也不会看起来像是卡死。
 
 ## 冰雹猜想 / Collatz 示例 Prompt
@@ -247,6 +266,8 @@ python "$SKILL/scripts/supervise.py" \
 
 ```text
 请使用 $strict-agent-loop 来处理这个仓库。
+这个仓库本身就是 workspace root。
+请把 output/sequence.json 和 output/report.md 写在 workspace root 下面，不要写进 .codex-loop/tasks/<task-id>/ 里。
 任务是从 27 开始构造冰雹猜想序列。
 每一轮只允许计算并追加下一个数字，绝对不允许一轮里连算多步。
 请把完整数列持久化到 output/sequence.json。
@@ -261,9 +282,17 @@ python "$SKILL/scripts/supervise.py" \
 
 - 每个无人值守目标都给一个稳定 `task-id`，不要今天一个名字、明天一个名字。
 - 把任务状态放在目标仓库自己的 `.codex-loop/` 里，不要放临时目录。
+- 真正的工作产物放在 workspace root，`.codex-loop/tasks/<task-id>/` 只保留循环账本和控制面文件。
 - 最好在目标仓库里写一个很小的 verifier 脚本，并把它设成主要 `--stop-command`。
 - `--supervisor-max-rounds-per-invocation` 不要太大，这样 durable checkpoint 会更密。
-- 给 `supervise.py` 配上 `--max-invocation-seconds`，防止嵌套的 Codex 调用无声挂住。
+- 无人值守默认是磁盘优先恢复。只有你明确想跨多次调用复用同一个 Codex 线程时，才启用 `--supervisor-resume-existing-thread`。
+- 如果你更看重 `codex exec` 可用性，可以显式设置 `--supervisor-reasoning-effort low` 或 `medium`；留空则沿用你本机 Codex 默认配置。
+- 给 `supervise.py` 配一个相对宽松但明确存在的 `--max-invocation-seconds`，这样慢一些的汇总轮次也能跑完，同时又能防止嵌套 Codex 调用无声挂住。
+- 如果某次调用虽然超时或非零退出，但已经把已验证进度落盘了，supervisor 会保留这部分进度，而且不会把它继续累计成一次额外的 consecutive failure。
+- 如果无人值守过程中真的遇到了只读文件系统写失败，supervisor 会自动关闭“复用旧线程”并在下一轮退回到新起调用 + 从磁盘恢复。
+- 需要暂停时，直接对 supervisor 发 `Ctrl-C` 或 `kill -TERM`；它会记录中断、保存状态，并以 `130` 退出。
+- supervisor 调 `codex exec` 时会带 `--skip-git-repo-check`，所以不会因为仓库不干净就直接拒绝跑。
+- prompt 里最好明确要求 Codex 在初次恢复之后不要每一轮都重读整份 `TASK.md` 或整份 `state.json`，而是只检查当前需要的那几个工作区产物和最新状态切片。
 - 看进度时优先看 `latest-status.txt`、`status-history.jsonl`、`run-summary.md`，不要只盯控制台。
 - 如果上下文明显变重，就跑 `compact_state.py`。
 - 需要恢复时，优先复用同一个 `state.json`，不要随手新建一个任务把旧账本切断。
@@ -295,6 +324,7 @@ strict-agent-loop/
 │   ├── check_stop.py
 │   ├── compact_state.py
 │   ├── init_state.py
+│   ├── json_get.py
 │   ├── list_tasks.py
 │   ├── report_status.py
 │   ├── show_task.py

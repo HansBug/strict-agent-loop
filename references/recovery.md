@@ -23,6 +23,22 @@ If `codex exec resume` fails or the stored thread becomes unusable:
 3. let the supervisor start a fresh invocation
 4. recover from the task-local disk state and append-only logs
 
+This fresh disk-based recovery path is the default unattended mode.
+Reusing the same Codex thread is opt-in.
+
+If the supervisor is interrupted with `SIGINT` or `SIGTERM`:
+
+1. keep the same task root
+2. persist the latest state and interruption event
+3. exit `130`
+4. resume later from the same managed task
+
+If inner unattended commands hit a real read-only filesystem write failure:
+
+1. preserve the already-persisted task state
+2. disable stored thread resume
+3. resume on the next cycle from disk only
+
 The important files are:
 
 - `.codex-loop/registry.json`

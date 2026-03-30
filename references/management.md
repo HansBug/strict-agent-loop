@@ -11,6 +11,7 @@ The default layout is:
 - per-task state: `.codex-loop/tasks/<task-id>/state.json`
 
 All durable task artifacts stay under the task root.
+Actual deliverables should usually stay under the workspace root, not inside `.codex-loop/tasks/<task-id>/`.
 
 ## Choosing A Task Id
 

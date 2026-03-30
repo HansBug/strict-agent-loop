@@ -47,6 +47,7 @@ At minimum, maintain:
 
 Treat the task-local `state.json` as the current working state and the JSONL/Markdown artifacts as the full durable trail.
 Treat `registry.json` as the manager index that tells you which task roots exist.
+Treat `<workspace_root>/...` as the place for real deliverables and `.codex-loop/tasks/<task-id>/...` as the bookkeeping area.
 
 ## Atomicity Rules
 
@@ -72,7 +73,8 @@ Before dispatching each round, announce:
 - recent average round time and ETA when available
 
 Interactive mode should say this to the user and log it to `events.jsonl`.
-Unattended mode should at least log it to `events.jsonl`.
+Unattended mode should log it to `events.jsonl` and keep the outer supervisor stdout visibly informative.
+The authoritative completed-round count is `state.counters.iteration`.
 
 ## Required Controller Actions After Each Round
 
@@ -85,6 +87,8 @@ Unattended mode should at least log it to `events.jsonl`.
 
 Do not skip verification.
 Do not rely on the executor's word alone.
+After the first recovery read, do not keep re-reading full state and task documents every round unless disk state is actually unclear.
+Run these commands strictly sequentially. Do not start the next command until the previous one has completed, and never overlap `update_state.py`, `check_stop.py`, or `report_status.py`.
 
 ## Stop Rules
 

@@ -35,8 +35,11 @@ It is not the full state. It is a workspace-level lookup table for managed tasks
 ## `task`
 
 - `id`: managed task id
-- `root_dir`: task-local durable root
+- `root_dir`: task-local durable root for bookkeeping artifacts
 - `manager_dir`: workspace-level `.codex-loop` directory
+
+`workspace_root` remains the place for real project files and deliverables.
+Do not confuse it with `task.root_dir`.
 
 ## `limits`
 
@@ -85,6 +88,7 @@ It is not the full state. It is a workspace-level lookup table for managed tasks
 - `enabled`
 - `codex_bin`
 - `model`
+- `reasoning_effort`
 - `sandbox`
 - `thread_id`
 - `resume_existing_thread`
@@ -99,6 +103,10 @@ It is not the full state. It is a workspace-level lookup table for managed tasks
 - `last_output_path`
 - `last_jsonl_path`
 - `log_dir`
+
+`resume_existing_thread` is intentionally `false` by default for unattended tasks so fresh disk-based recovery remains the primary path.
+`reasoning_effort` is optional; if empty, unattended runs use the local Codex config default.
+`last_exit_code` may be `130` when an operator interrupts the supervisor cleanly.
 
 ## `history[]`
 

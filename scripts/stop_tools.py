@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
+import copy
+import json
 import subprocess
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List, Optional
 
 from state_tools import normalize_text
 
@@ -20,7 +24,80 @@ def resolve_workspace_path(workspace_root: Path, raw_path: str) -> Path:
     return (workspace_root / raw_path).resolve()
 
 
-def evaluate_command_checks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_completed_projection(state: Dict[str, Any]) -> Dict[str, Any]:
+    projected_state = copy.deepcopy(state)
+    projected_state["status"] = "completed"
+    projected_state["next_task"] = "Stop condition met; exit."
+    blocker = projected_state.setdefault("blocker", {})
+    blocker["needs_human_input"] = False
+    blocker["reason"] = ""
+    history = projected_state.get("history", [])
+    if history:
+        history[-1]["status"] = "completed"
+        history[-1]["stop_condition_met"] = True
+    return projected_state
+
+
+@contextmanager
+def projected_state_file(
+    state_path: Path,
+    projected_state: Dict[str, Any],
+) -> Iterator[Path]:
+    temp_handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=".stop-check-projection-",
+        suffix=".json",
+        dir=str(state_path.parent),
+        delete=False,
+    )
+    temp_path = Path(temp_handle.name).resolve()
+    try:
+        with temp_handle:
+            json.dump(projected_state, temp_handle, indent=2, ensure_ascii=False)
+            temp_handle.write("\n")
+        yield temp_path
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def rewrite_command_state_path(
+    command: str,
+    original_state_path: Optional[Path],
+    replacement_state_path: Optional[Path],
+    cwd_path: Path,
+) -> str:
+    if not original_state_path or not replacement_state_path:
+        return command
+
+    original_state_path = original_state_path.resolve()
+    replacement_state_path = replacement_state_path.resolve()
+
+    replacements = {
+        str(original_state_path): str(replacement_state_path),
+    }
+    try:
+        relative_original = str(original_state_path.relative_to(cwd_path))
+        replacements[relative_original] = str(replacement_state_path)
+        if not relative_original.startswith("./"):
+            replacements["./%s" % relative_original] = str(replacement_state_path)
+    except ValueError:
+        pass
+
+    rewritten = command
+    for source, target in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
+        rewritten = rewritten.replace(source, target)
+    return rewritten
+
+
+def evaluate_command_checks(
+    state: Dict[str, Any],
+    state_path: Optional[Path] = None,
+    replacement_state_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
     workspace_root = Path(state.get("workspace_root", ".")).resolve()
     checks = state.get("stop_checks", {}).get("commands", [])
     results = []
@@ -29,9 +106,15 @@ def evaluate_command_checks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
         cwd_value = check.get("cwd", ".")
         timeout_seconds = int(check.get("timeout_seconds", 900))
         cwd_path = resolve_workspace_path(workspace_root, cwd_value)
+        executed_command = rewrite_command_state_path(
+            command,
+            original_state_path=state_path,
+            replacement_state_path=replacement_state_path,
+            cwd_path=cwd_path,
+        )
         try:
             completed = subprocess.run(
-                command,
+                executed_command,
                 shell=True,
                 cwd=str(cwd_path),
                 stdout=subprocess.PIPE,
@@ -53,6 +136,7 @@ def evaluate_command_checks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "type": "command",
                 "description": normalize_text(check.get("description", command)),
                 "command": command,
+                "executed_command": executed_command,
                 "cwd": str(cwd_path),
                 "passed": passed,
                 "exit_code": exit_code,
@@ -108,8 +192,16 @@ def evaluate_text_pattern_checks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     return results
 
 
-def evaluate_stop_checks(state: Dict[str, Any]) -> Dict[str, Any]:
-    command_results = evaluate_command_checks(state)
+def evaluate_stop_checks(
+    state: Dict[str, Any],
+    state_path: Optional[Path] = None,
+    replacement_state_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    command_results = evaluate_command_checks(
+        state,
+        state_path=state_path,
+        replacement_state_path=replacement_state_path,
+    )
     path_results = evaluate_path_checks(state)
     text_results = evaluate_text_pattern_checks(state)
     all_results = command_results + path_results + text_results
@@ -126,12 +218,39 @@ def evaluate_stop_checks(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_stop_report(state: Dict[str, Any]) -> Dict[str, Any]:
+def build_stop_report(state: Dict[str, Any], state_path: Optional[Path] = None) -> Dict[str, Any]:
     counters = state.get("counters", {})
     limits = state.get("limits", {})
     history = state.get("history", [])
     last_entry = history[-1] if history else {}
-    stop_checks = evaluate_stop_checks(state)
+    current_stop_checks = evaluate_stop_checks(state, state_path=state_path)
+    stop_checks = current_stop_checks
+    completion_projection = {
+        "used": False,
+        "projected_status": "completed",
+        "stop_checks_passed": False,
+    }
+
+    should_try_projection = (
+        state_path is not None
+        and state.get("status") not in {"completed", "blocked", "failed"}
+        and bool(state.get("stop_checks", {}).get("commands", []))
+        and current_stop_checks.get("has_checks")
+        and not current_stop_checks.get("all_passed")
+    )
+    if should_try_projection:
+        projected_state = build_completed_projection(state)
+        completion_projection["used"] = True
+        with projected_state_file(state_path.resolve(), projected_state) as projection_path:
+            projected_stop_checks = evaluate_stop_checks(
+                projected_state,
+                state_path=state_path,
+                replacement_state_path=projection_path,
+            )
+        completion_projection["projected_stop_checks"] = projected_stop_checks
+        if projected_stop_checks.get("all_passed"):
+            completion_projection["stop_checks_passed"] = True
+            stop_checks = projected_stop_checks
 
     status = state.get("status", "running")
     reasons = []
@@ -144,6 +263,19 @@ def build_stop_report(state: Dict[str, Any]) -> Dict[str, Any]:
         success = False
         exit_code = 2
         reasons.append("loop_status_%s" % status)
+    elif stop_checks.get("has_checks") and stop_checks.get("all_passed"):
+        should_stop = True
+        success = True
+        exit_code = 0
+        if completion_projection.get("stop_checks_passed"):
+            reasons.append("stop_checks_passed_after_completion_projection")
+        else:
+            reasons.append("stop_checks_passed")
+    elif status == "completed" or last_entry.get("stop_condition_met"):
+        should_stop = True
+        success = True
+        exit_code = 0
+        reasons.append("global_stop_condition_met")
     elif int(counters.get("iteration", 0)) >= int(limits.get("max_iterations", 200)):
         should_stop = True
         success = False
@@ -154,25 +286,10 @@ def build_stop_report(state: Dict[str, Any]) -> Dict[str, Any]:
         success = False
         exit_code = 2
         reasons.append("max_no_progress_rounds_reached")
-    elif stop_checks.get("has_checks"):
-        if stop_checks.get("all_passed"):
-            should_stop = True
-            success = True
-            exit_code = 0
-            reasons.append("stop_checks_passed")
-        else:
-            reasons.append("continue")
-            if status == "completed" or last_entry.get("stop_condition_met"):
-                reasons.append("state_marked_completed_but_stop_checks_failed")
-    elif status == "completed" or last_entry.get("stop_condition_met"):
-        should_stop = True
-        success = True
-        exit_code = 0
-        reasons.append("global_stop_condition_met")
     else:
         reasons.append("continue")
 
-    return {
+    report = {
         "should_stop": should_stop,
         "success": success,
         "status": status,
@@ -185,3 +302,6 @@ def build_stop_report(state: Dict[str, Any]) -> Dict[str, Any]:
         "stop_checks": stop_checks,
         "blocker": state.get("blocker", {}),
     }
+    if completion_projection.get("used"):
+        report["completion_projection"] = completion_projection
+    return report

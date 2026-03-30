@@ -91,6 +91,15 @@ This is the main anti-conflict mechanism:
 - mutation scripts operate on one explicit task state file
 - `list_tasks.py` and `show_task.py` provide lightweight management
 
+## Workspace Outputs vs Task Bookkeeping
+
+Keep these two areas separate:
+
+- Actual task outputs live under `<workspace-root>/`, such as `src/`, `docs/`, `tests/`, or `output/`.
+- Loop bookkeeping lives under `.codex-loop/tasks/<task-id>/`, including `state.json`, logs, stop reports, and round summaries.
+
+This matters in practice because a vague prompt can make Codex accidentally write deliverables into the task ledger directory. The task root is for control-plane state unless you explicitly want a bookkeeping artifact there.
+
 ## Installation
 
 ### Option 1: install into the Codex skills directory
@@ -177,6 +186,8 @@ Then prompt Codex explicitly:
 ```text
 Use $strict-agent-loop for this repository.
 Read /abs/path/to/repo/.codex-loop/tasks/parser-fix/state.json before acting.
+Treat /abs/path/to/repo as the workspace root for real work artifacts.
+Treat /abs/path/to/repo/.codex-loop/tasks/parser-fix/ as bookkeeping only: state, logs, stop reports, and round summaries.
 This is interactive mode.
 Before each round, tell me:
 - the iteration number
@@ -212,9 +223,13 @@ python "$SKILL/scripts/init_state.py" \
   --stop-command "python verify_task.py" \
   --require-path output/final-report.md \
   --max-iterations 200 \
+  --supervisor-reasoning-effort medium \
   --supervisor-max-rounds-per-invocation 5 \
   --supervisor-max-consecutive-failures 3
 ```
+
+By default, unattended mode now starts each Codex invocation fresh and recovers from disk. If you explicitly want to reuse the same inner Codex thread between invocations, add `--supervisor-resume-existing-thread` when you initialize the task.
+If your provider tends to reject very heavy runs during busy periods, set `--supervisor-reasoning-effort low` or `medium` for better availability.
 
 Start the supervisor:
 
@@ -223,7 +238,7 @@ python "$SKILL/scripts/supervise.py" \
   --state "$STATE" \
   --skill-path "$SKILL" \
   --heartbeat-seconds 30 \
-  --max-invocation-seconds 900 \
+  --max-invocation-seconds 1800 \
   --max-cycles 200 \
   --prompt-note "Keep each round atomic, persist every announcement and status update, and do not stop until the machine checks pass or a real blocker is recorded."
 ```
@@ -236,12 +251,18 @@ The supervisor keeps broadcasting liveness and progress to the task-local files,
 - recent average round duration
 - estimated remaining time when there is enough signal
 
+It also relays inner Codex announcements plus command start/completion events to outer stdout, so an operator watching the supervisor can tell whether the run is actively moving or has stalled.
+
+If you send `SIGINT` or `SIGTERM` to `supervise.py`, it saves the latest state, records an interruption event, and exits with code `130` so you can resume the same managed task later.
+
 ## Hailstone / Collatz Example
 
 This is a good end-to-end stress test because the total number of rounds is not obvious up front and each round can be forced to do exactly one small step.
 
 ```text
 Use $strict-agent-loop for this repository.
+The workspace root is this repo itself.
+Keep output/sequence.json and output/report.md under the workspace root, not inside .codex-loop/tasks/<task-id>/.
 The task is to build the hailstone sequence starting from 27.
 Each round may compute and append exactly one next number. Never batch multiple steps into one round.
 Persist the full sequence to output/sequence.json.
@@ -256,9 +277,17 @@ The loop is stricter than a normal Codex prompt, but it is still subject to Code
 
 - Use one stable `task-id` per unattended objective so you can resume the exact same task later.
 - Keep the task state inside the target repo so the ledger survives terminal sessions and machine restarts.
+- Keep real work artifacts in the workspace root and reserve `.codex-loop/tasks/<task-id>/` for loop bookkeeping.
 - Prefer one tiny verifier script in the target repo and make it the primary `--stop-command`.
 - Keep `--supervisor-max-rounds-per-invocation` modest so durable checkpoints are frequent.
-- Use `--max-invocation-seconds` so a bad nested Codex invocation fails loudly instead of hanging forever.
+- Default unattended recovery is disk-first. Only enable `--supervisor-resume-existing-thread` when you specifically want the same inner Codex thread and trust that environment.
+- Set `--supervisor-reasoning-effort low` or `medium` when you need higher availability from `codex exec`; leaving it empty uses your normal Codex config default.
+- Use a generous `--max-invocation-seconds` so slow synthesis or reporting rounds can finish, but still set a ceiling so a bad nested Codex invocation fails loudly instead of hanging forever.
+- If an invocation times out or exits non-zero after already persisting verified progress, the supervisor keeps that progress and does not count the run as an additional consecutive failure.
+- If a real write command hits a read-only filesystem error during unattended execution, the supervisor disables stored thread resume and falls back to fresh disk recovery on the next cycle.
+- Send `Ctrl-C` or `kill -TERM` to the supervisor when you need to pause it; it records the interruption, saves state, and exits `130`.
+- The supervisor runs `codex exec` with `--skip-git-repo-check`, so unattended work does not depend on the repo looking perfectly clean.
+- In prompts, explicitly tell Codex not to re-read full `TASK.md` or full `state.json` every round. After initial recovery, it should inspect only the targeted workspace artifacts and the latest persisted status it actually needs.
 - Watch `latest-status.txt`, `status-history.jsonl`, and `run-summary.md` instead of trusting the console alone.
 - Compact with `compact_state.py` when the controller starts carrying too much history in memory.
 - If a run must recover, reuse the same task state path instead of creating a new task unless the goal really changed.
@@ -289,6 +318,7 @@ strict-agent-loop/
 │   ├── check_stop.py
 │   ├── compact_state.py
 │   ├── init_state.py
+│   ├── json_get.py
 │   ├── list_tasks.py
 │   ├── report_status.py
 │   ├── show_task.py

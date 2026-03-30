@@ -48,7 +48,7 @@ def main() -> int:
             "keep_last": args.keep_last,
         },
     )
-    stop_report = build_stop_report(state)
+    stop_report = build_stop_report(state, state_path=state_path)
     report = build_status_report(state, stop_report=stop_report)
     write_status_text(state, report)
     write_stop_report_file(state_path, state, stop_report)

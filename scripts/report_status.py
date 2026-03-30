@@ -33,7 +33,7 @@ def main() -> int:
     args = parse_args()
     state_path = Path(args.state).resolve()
     state = load_state(state_path)
-    stop_report = build_stop_report(state)
+    stop_report = build_stop_report(state, state_path=state_path)
     report = build_status_report(state, stop_report=stop_report)
     status_path = write_status_text(state, report)
     stop_report_path = write_stop_report_file(state_path, state, stop_report)

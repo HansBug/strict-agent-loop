@@ -51,6 +51,7 @@ Unless the user explicitly overrides it, assume:
 - each task gets its own root at `<workspace_root>/.codex-loop/tasks/<task-id>/`
 - task state path is `<workspace_root>/.codex-loop/tasks/<task-id>/state.json`
 - all task-local durable artifacts live under the same task root
+- real work outputs stay in `<workspace_root>/...`, not inside the task root unless the task explicitly wants bookkeeping-style artifacts there
 
 Future changes should preserve this default-first behavior.
 Prompt examples should say "use the default managed `.codex-loop/` layout" instead of making users spell out every file path.
@@ -76,6 +77,11 @@ When something goes wrong, the intended recovery order is:
 7. the task's `rounds/`
 8. unattended only: the task's `supervisor/`
 
+For unattended mode, the default policy is now fresh Codex invocations with disk recovery.
+Reusing the same Codex thread is opt-in.
+Reasoning effort is separately configurable for unattended runs and may need to be lowered for provider availability.
+If the supervisor receives `SIGINT` or `SIGTERM`, it should save state, append an interruption event, and exit `130`.
+
 If you change the schema or artifact set, make sure this recovery order still makes sense and update `references/recovery.md`.
 
 ## Script Responsibilities
@@ -94,8 +100,11 @@ If you change the schema or artifact set, make sure this recovery order still ma
   Refreshes human-readable and machine-readable progress outputs.
 - `compact_state.py`
   Shrinks the rolling in-memory history window without destroying the append-only trail.
+- `json_get.py`
+  Reads specific dotted paths from JSON state files for targeted recovery checks without dumping the whole file.
 - `supervise.py`
   Owns unattended outer-loop execution and heartbeat-style broadcasting.
+  It also relays inner Codex announcements and command lifecycle events to outer stdout.
 - `list_tasks.py`
   Lists managed tasks from the workspace registry.
 - `show_task.py`
@@ -131,6 +140,8 @@ Before pushing, at minimum do all of these:
 - `~/.pyenv/versions/3.7.6/bin/python -m py_compile scripts/*.py`
 - run the lifecycle smoke flow or the GitHub Actions equivalent
 - forward-test a real strict-loop task when the runtime semantics changed
+- when unattended behavior changes, prove interruption, recovery, and progress broadcasting on a real supervisor run
+- when interactive behavior changes, prove a real multi-round online session instead of only checking the state files
 
 The canonical real-world test in this repo is a hailstone / Collatz sequence task where:
 

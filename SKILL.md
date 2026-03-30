@@ -32,9 +32,15 @@ When the user asks how to use this skill, answer concretely.
    - `.codex-loop/registry.json`
    - `.codex-loop/tasks/<task-id>/state.json`
    - task-local `events.jsonl`, `iterations.jsonl`, `status-history.jsonl`, `latest-status.txt`, `latest-stop-report.json`, `run-summary.md`, `rounds/`, and unattended-only `supervisor/`
-4. Always mention `list_tasks.py` and `show_task.py` when the repo may host multiple loops.
-5. Always mention that unattended runs should rely on machine-checkable stop conditions, not only natural-language claims.
-6. Give the user an exact prompt or shell command, not only prose.
+4. Always distinguish workspace outputs from bookkeeping:
+   - real deliverables belong under `<workspace_root>/`
+   - loop state and ledgers belong under `.codex-loop/tasks/<task-id>/`
+5. Always mention `list_tasks.py` and `show_task.py` when the repo may host multiple loops.
+6. Always mention that unattended runs should rely on machine-checkable stop conditions, not only natural-language claims.
+7. For unattended usage, explain that fresh disk-based recovery is the default and `--supervisor-resume-existing-thread` is opt-in.
+8. Mention that `--supervisor-reasoning-effort low|medium` can improve unattended availability when the provider is overloaded.
+9. Mention that `supervise.py` can be interrupted with `SIGINT` or `SIGTERM`, saves state, and exits `130`.
+10. Give the user an exact prompt or shell command, not only prose.
 
 ## Managed Task Selection
 
@@ -45,9 +51,10 @@ Default to the managed layout under `<workspace_root>/.codex-loop/`.
 - If the user is starting new work and did not specify a task id, derive one from the goal by using `scripts/init_state.py`.
 - If the user wants to resume and gives a task id, use that exact managed task.
 - If the user wants to resume but did not name a task:
-  - if exactly one plausible running task exists, use it
-  - if several plausible tasks exist, show `scripts/list_tasks.py` output and ask which task to continue
+- if exactly one plausible running task exists, use it
+- if several plausible tasks exist, show `scripts/list_tasks.py` output and ask which task to continue
 - Do not ask the user to enumerate storage paths unless they explicitly want custom paths.
+- Keep actual work artifacts in the workspace root and keep the task root for loop bookkeeping unless the task explicitly requires otherwise.
 
 ## Required Loop Contract
 
@@ -121,6 +128,7 @@ Architecture:
 - the supervisor starts or resumes Codex with `codex exec` or `codex exec resume`
 - the inner Codex session still uses this skill as controller
 - disk artifacts bridge one invocation to the next
+- fresh disk-based recovery is the default; reusing the same Codex thread is opt-in through `--supervisor-resume-existing-thread`
 
 Rules:
 
@@ -130,6 +138,8 @@ Rules:
   - the global stop condition is met
   - a real blocker is reached
   - the per-invocation round budget is consumed
+- The supervisor relays inner Codex messages plus command start/completion events to outer stdout.
+- `SIGINT` and `SIGTERM` should cause the supervisor to persist state, record the interruption, and exit with code `130`.
 - Because no human is present, round announcements must still be written to disk.
 - The supervisor must refresh durable progress broadcasts so the run does not look dead.
 
@@ -147,6 +157,7 @@ Unattended mode:
 
 - write `round.started` announcements to `events.jsonl`
 - refresh `status-history.jsonl`, `latest-status.txt`, `latest-stop-report.json`, and `run-summary.md`
+- keep visible outer-stdout broadcasts informative; operators should be able to see progress without opening the logs first
 - let the supervisor print heartbeat-style summaries that include:
   - completed iteration count
   - approximate progress bar
@@ -217,6 +228,12 @@ If unattended mode loses its Codex thread:
 2. clear the stored thread id
 3. let the supervisor start a fresh Codex invocation
 4. recover from disk state, not from memory
+
+If unattended mode hits a real read-only filesystem write failure:
+
+1. preserve the current task state
+2. disable stored thread resume
+3. recover on the next cycle from the disk trail only
 
 ## Fast Start
 
