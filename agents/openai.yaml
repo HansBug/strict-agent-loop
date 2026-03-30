@@ -1,0 +1,6 @@
+interface:
+  display_name: "Strict Agent Loop"
+  short_description: "Persistent stepwise loop executor"
+  default_prompt: "Use $strict-agent-loop to execute a task as strict atomic steps with explicit stop conditions until completion."
+policy:
+  allow_implicit_invocation: false

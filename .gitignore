@@ -1,0 +1,4 @@
+.codex-loop/
+__pycache__/
+.pytest_cache/
+*.pyc
