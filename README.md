@@ -1,5 +1,7 @@
 # strict-agent-loop
 
+English | [简体中文](./README_zh.md)
+
 `strict-agent-loop` is a Codex skill for forcing disciplined, stepwise execution on tasks that are easy to shortcut. It combines a persistent executor agent, a controller loop in the current agent, and a disk-backed state ledger so the work can continue round by round until a clear stopping rule is met.
 
 ## What It Enforces
@@ -39,7 +41,7 @@ strict-agent-loop/
 Clone the repository into your Codex skills directory:
 
 ```bash
-git clone <YOUR_GITHUB_REPO_URL> "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
+git clone https://github.com/HansBug/strict-agent-loop "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
 ```
 
 After that, Codex can invoke it as `$strict-agent-loop`.
@@ -49,7 +51,7 @@ After that, Codex can invoke it as `$strict-agent-loop`.
 Clone the repository anywhere you want:
 
 ```bash
-git clone <YOUR_GITHUB_REPO_URL> /path/to/strict-agent-loop
+git clone https://github.com/HansBug/strict-agent-loop /path/to/strict-agent-loop
 ```
 
 Invoke it with an explicit path:

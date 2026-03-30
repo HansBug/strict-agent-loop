@@ -1,5 +1,7 @@
 # strict-agent-loop
 
+[English README](./README.md) | 简体中文
+
 `strict-agent-loop` 是一个用于 Codex 的 skill，目标是把那些容易被“跳步骤”或者“偷工减料”的任务，强制变成严格的小步循环执行。它把当前代理作为控制器，把一个持久子代理作为执行器，再配合磁盘状态账本，让任务在满足明确停止条件之前持续推进。
 
 ## 它强制的行为
@@ -39,7 +41,7 @@ strict-agent-loop/
 把仓库 clone 到 Codex 的 skills 目录：
 
 ```bash
-git clone <你的 GitHub 仓库地址> "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
+git clone https://github.com/HansBug/strict-agent-loop "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
 ```
 
 安装后，就可以直接按 `$strict-agent-loop` 调用。
@@ -47,7 +49,7 @@ git clone <你的 GitHub 仓库地址> "${CODEX_HOME:-$HOME/.codex}/skills/stric
 ### 方式二：放在任意路径，通过显式路径调用
 
 ```bash
-git clone <你的 GitHub 仓库地址> /path/to/strict-agent-loop
+git clone https://github.com/HansBug/strict-agent-loop /path/to/strict-agent-loop
 ```
 
 调用时写明 skill 路径：
