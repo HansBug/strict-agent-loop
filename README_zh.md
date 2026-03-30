@@ -4,6 +4,8 @@
 
 `strict-agent-loop` 是一个用于 Codex 的 skill，目标是把那些容易被“跳步骤”或者“偷工减料”的任务，强制变成严格的小步循环执行。它把当前代理作为控制器，把一个持久子代理作为执行器，再配合磁盘状态账本，让任务在满足明确停止条件之前持续推进。
 
+仓库里的辅助脚本只依赖 Python 标准库，并按兼容 Python `3.7` 到 `3.14` 的方式编写。
+
 ## 它强制的行为
 
 - 每一轮只能做一个原子任务。
@@ -160,3 +162,5 @@ python scripts/compact_state.py --state /abs/path/to/repo/.codex-loop/state.json
 
 - 运行 `python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py /path/to/strict-agent-loop`
 - 在一个独立的小型测试仓库里，用真实 Codex 任务前向测试
+
+另外，仓库里的 [python-compat.yml](./.github/workflows/python-compat.yml) 会在 GitHub Actions 上对 Python `3.7` 到 `3.14` 做生命周期脚本烟测。

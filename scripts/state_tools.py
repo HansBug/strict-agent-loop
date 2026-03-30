@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Dict, Iterable, List, Union
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def load_state(path: str | Path) -> dict[str, Any]:
+def load_state(path: Union[str, Path]) -> Dict[str, Any]:
     state_path = Path(path).resolve()
     with state_path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_state(path: str | Path, state: dict[str, Any]) -> None:
+def save_state(path: Union[str, Path], state: Dict[str, Any]) -> None:
     state_path = Path(path).resolve()
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state["updated_at"] = utc_now()
@@ -30,21 +29,21 @@ def normalize_text(value: str) -> str:
     return " ".join(value.split())
 
 
-def format_list(items: Iterable[str]) -> list[str]:
+def format_list(items: Iterable[str]) -> List[str]:
     return [normalize_text(item) for item in items if item and item.strip()]
 
 
 def build_state(
     goal: str,
     global_stop_condition: str,
-    workspace_root: str | Path,
-    success_evidence: list[str],
+    workspace_root: Union[str, Path],
+    success_evidence: List[str],
     blocker_definition: str,
     max_iterations: int,
     max_no_progress_rounds: int,
     max_context_chars: int,
     executor_agent_id: str = "",
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     now = utc_now()
     return {
         "schema_version": 1,
@@ -78,7 +77,7 @@ def build_state(
     }
 
 
-def summarize_entry(entry: dict[str, Any]) -> str:
+def summarize_entry(entry: Dict[str, Any]) -> str:
     task = normalize_text(entry.get("task", ""))
     result_summary = normalize_text(entry.get("result_summary", ""))
     verification = normalize_text(entry.get("verification_summary", ""))
@@ -89,7 +88,7 @@ def summarize_entry(entry: dict[str, Any]) -> str:
     )
 
 
-def build_context_snapshot(state: dict[str, Any], keep_last: int = 5) -> str:
+def build_context_snapshot(state: Dict[str, Any], keep_last: int = 5) -> str:
     history = state.get("history", [])
     recent = history[-keep_last:]
     lines = [

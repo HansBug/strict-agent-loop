@@ -1,0 +1,66 @@
+name: Python Compatibility
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.7"
+          - "3.8"
+          - "3.9"
+          - "3.10"
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile scripts
+        run: python -m py_compile scripts/*.py
+
+      - name: Smoke test state lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          state_path="$tmpdir/.codex-loop/state.json"
+
+          python scripts/init_state.py \
+            --state "$state_path" \
+            --goal "Verify compatibility smoke test" \
+            --global-stop-condition "Stop only when the lifecycle scripts run cleanly." \
+            --workspace-root "$tmpdir" \
+            --success-evidence "check_stop.py returns success"
+
+          python scripts/update_state.py \
+            --state "$state_path" \
+            --task "Record a smoke-test iteration" \
+            --local-done-condition "A verified iteration is appended" \
+            --result-summary "The iteration was written successfully" \
+            --verification-summary "Validated by reading the updated state file" \
+            --next-task "Mark the loop complete" \
+            --agent-id "compat-smoke-executor" \
+            --executor-inherited-context
+
+          python scripts/update_state.py \
+            --state "$state_path" \
+            --task "Mark the loop complete" \
+            --local-done-condition "The global stop condition is marked as met" \
+            --result-summary "The loop was marked completed" \
+            --verification-summary "Validated by check_stop.py" \
+            --stop-met
+
+          python scripts/check_stop.py --state "$state_path"
+          python scripts/compact_state.py --state "$state_path" --keep-last 1

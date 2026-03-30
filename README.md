@@ -4,6 +4,8 @@ English | [简体中文](./README_zh.md)
 
 `strict-agent-loop` is a Codex skill for forcing disciplined, stepwise execution on tasks that are easy to shortcut. It combines a persistent executor agent, a controller loop in the current agent, and a disk-backed state ledger so the work can continue round by round until a clear stopping rule is met.
 
+The helper scripts are stdlib-only and written to stay compatible with Python `3.7` through `3.14`.
+
 ## What It Enforces
 
 - One atomic task per iteration.
@@ -162,3 +164,5 @@ This repository is designed to be validated in two ways:
 
 - run `python ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py /path/to/strict-agent-loop`
 - forward-test it on a separate toy repository with a real Codex task
+
+There is also a GitHub Actions workflow at [python-compat.yml](./.github/workflows/python-compat.yml) that smoke-tests the lifecycle scripts across Python `3.7` to `3.14`.

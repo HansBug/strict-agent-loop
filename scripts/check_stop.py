@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
+from typing import List
 
 from state_tools import load_state
 
@@ -24,7 +24,7 @@ def main() -> int:
     last_entry = history[-1] if history else {}
 
     status = state.get("status", "running")
-    reasons: list[str] = []
+    reasons = []  # type: List[str]
     should_stop = False
     success = False
     exit_code = 1
