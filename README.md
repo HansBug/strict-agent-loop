@@ -2,28 +2,60 @@
 
 English | [简体中文](./README_zh.md)
 
-`strict-agent-loop` is a Codex skill plus a small stdlib-only runtime that turns vague long tasks into strict atomic rounds with durable state, explicit round announcements, progress broadcasts, recovery artifacts, and optional unattended supervision.
+> ⚠️ **DEPRECATED — no longer maintained.**
+>
+> This skill has been abandoned. Do not install it. The documentation below the
+> divider is kept only for historical reference. New skills that explicitly
+> replace this workflow are not planned.
 
-The helper scripts are written to stay compatible with Python `3.7` through `3.14`.
+## What To Do Instead
 
-## Copy-Paste Install Prompt
+The strict-atomic-round + durable-state pattern this skill implemented is no
+longer worth running as a separate skill. Both CLIs now have native features
+that cover the realistic use cases. Pick the path that matches your CLI.
 
-Paste this into Codex if you want it to install or update the skill and do a minimal validation without you having to spell out the file layout:
+### If you installed this on Codex CLI
 
-```text
-Install or update the GitHub repo https://github.com/HansBug/strict-agent-loop into my Codex skills directory as strict-agent-loop, then run a minimal managed-layout validation in a temporary directory.
+1. Uninstall:
 
-Requirements:
-- install to "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
-- if the repo already exists there, pull the latest main branch instead of recloning
-- use `SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"` for all validation commands
-- run:
-  1. python "$SKILL_DIR/scripts/init_state.py" --workspace-root <tmpdir> --task-id smoke --goal "Managed layout smoke test" --global-stop-condition "Stop only when the smoke task is initialized cleanly." --success-evidence "registry and task-local state exist"
-  2. python "$SKILL_DIR/scripts/list_tasks.py" --workspace-root <tmpdir>
-  3. python "$SKILL_DIR/scripts/show_task.py" --workspace-root <tmpdir> --task-id smoke --json
-- confirm that both <tmpdir>/.codex-loop/registry.json and <tmpdir>/.codex-loop/tasks/smoke/state.json exist
-- tell me the exact commands you ran and the result
-```
+   ```bash
+   rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
+   ```
+
+2. For in-progress workspaces, the `.codex-loop/` directories are now inert.
+   Archive them if you still want the event history (`tar czf codex-loop-archive.tgz .codex-loop/`),
+   otherwise delete them.
+
+3. If you still want strict atomic-step execution from Codex, use the built-in
+   primitives rather than a skill:
+
+   - Write the atomic-step contract directly into your prompt (one bounded task
+     per round, with one machine-checkable success condition).
+   - Use Codex's own session resumption instead of a custom disk-backed loop.
+   - If durable progress really matters, write a short append-only log in the
+     workspace yourself — simpler than a skill and harder to drift.
+
+### If you tried to install this on Claude Code
+
+This skill was never built for Claude Code, and is no longer recommended for
+either CLI. Nothing to uninstall.
+
+For the same "strict atomic rounds with durable state" shape on Claude Code, use
+the built-in features:
+
+- The task system (`TaskCreate` / `TaskUpdate` / `TaskList`) tracks atomic
+  rounds in-session without extra infrastructure.
+- Subagents under `.claude/agents/` isolate each round in its own context.
+- Plan mode commits the agent to a bounded plan before execution.
+- Hooks in `settings.json` (`SessionStart`, `PreToolUse`, `Stop`) cover the
+  "persist state across sessions" need without a separate runtime.
+
+---
+
+## Historical Documentation (unmaintained)
+
+The sections below describe the original (now-deprecated) skill. They are
+preserved for auditing past usage. Do not install or run this skill.
 
 ## What This Solves
 

@@ -2,28 +2,53 @@
 
 [English README](./README.md) | 简体中文
 
-`strict-agent-loop` 是一个给 Codex 用的 skill，加上一套只依赖 Python 标准库的小型 runtime。它的目标是把“容易偷懒、容易跳步骤、容易把中间过程压成一句话”的长任务，改造成严格的原子轮次执行，并把状态、播报、日志和恢复信息全部落到磁盘。
+> ⚠️ **已废弃（DEPRECATED），不再维护。**
+>
+> 这个 skill 已经停止维护，请不要再安装。下面分隔线以下的内容仅作为历史存档保留，
+> 不会再有针对这个工作流的新版本。
 
-仓库里的辅助脚本按兼容 Python `3.7` 到 `3.14` 的方式编写。
+## 应该改用什么
 
-## 可直接复制给 Codex 的安装 Prompt
+"严格原子轮次 + 磁盘状态"这一整套能力已经不值得以单独 skill 的形式维护。Codex 和
+Claude Code 各自都已经有原生能力覆盖真实的使用场景。按你使用的 CLI 走对应路径即可。
 
-如果你想让 Codex 自己安装或更新这个 skill，并顺手做一遍最小验通，可以直接复制下面这段：
+### 如果你在 Codex CLI 上装过
 
-```text
-请把 GitHub 仓库 https://github.com/HansBug/strict-agent-loop 安装或更新到我的 Codex skills 目录，目录名固定为 strict-agent-loop，然后在一个临时目录里做一次基于 managed layout 的最小验证。
+1. 卸载：
 
-要求：
-- 安装到 "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
-- 如果目录已经存在，就 pull 最新 main，而不是重新 clone
-- 后续校验命令统一使用 `SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"`
-- 依次运行：
-  1. python "$SKILL_DIR/scripts/init_state.py" --workspace-root <tmpdir> --task-id smoke --goal "Managed layout smoke test" --global-stop-condition "只有当 smoke 任务被正确初始化时才允许停止。" --success-evidence "registry 和 task-local state 都存在"
-  2. python "$SKILL_DIR/scripts/list_tasks.py" --workspace-root <tmpdir>
-  3. python "$SKILL_DIR/scripts/show_task.py" --workspace-root <tmpdir> --task-id smoke --json
-- 确认 <tmpdir>/.codex-loop/registry.json 和 <tmpdir>/.codex-loop/tasks/smoke/state.json 都存在
-- 把实际执行的命令和结果告诉我
-```
+   ```bash
+   rm -rf "${CODEX_HOME:-$HOME/.codex}/skills/strict-agent-loop"
+   ```
+
+2. 已有 workspace 里的 `.codex-loop/` 目录现在是死数据。如果还想保留 event 历史，
+   打个包即可：`tar czf codex-loop-archive.tgz .codex-loop/`，否则直接删掉。
+
+3. 如果还想让 Codex 按严格原子步骤执行，不要再套 skill，直接用原生能力：
+
+   - 把"每轮只做一件有界小事 + 一个可机器校验的完成条件"写进你的 prompt。
+   - 用 Codex 自带的 session 恢复能力，替代自建的磁盘 loop。
+   - 真需要持久化进度时，在 workspace 里自己写一个 append-only 日志文件就够了——
+     比套 skill 简单，也不会漂移。
+
+### 如果你试着在 Claude Code 上装过
+
+这个 skill 从来没有为 Claude Code 发布过，现在也不推荐给任何 CLI。Claude Code 端
+无需卸载。
+
+如果你想在 Claude Code 上得到同样"严格原子轮次 + 磁盘状态"的效果，用原生特性：
+
+- Task 系统（`TaskCreate` / `TaskUpdate` / `TaskList`）直接在会话中追踪原子轮次，
+  不需要额外 runtime。
+- `.claude/agents/` 里的 subagent 把每一轮隔离到独立上下文。
+- Plan mode 强制 agent 在执行前先承诺一个有界计划。
+- `settings.json` 里的 hooks（`SessionStart`、`PreToolUse`、`Stop`）可以覆盖
+  "跨 session 持久化状态"这件事，不需要再单独写一个 runtime。
+
+---
+
+## 历史文档（不再维护）
+
+以下章节描述原始（已废弃）skill。保留仅供审阅过去的使用记录，**不要再安装或运行**。
 
 ## 这个 Skill 解决什么问题
 
